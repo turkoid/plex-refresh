@@ -38,8 +38,9 @@ def parse_args(args_without_script):
     parser.add_argument('--plex-tools-dir', '-p', default='/usr/lib/plexmediaserver',
                         help='location of the plex cli tools')
     parser.add_argument('--dry-run', action='store_true', help='test sync without making modifications to the disk')
-    parser.add_argument('--skip-refresh', action='store_true', help='skip the plex library refresh')
+    parser.add_argument('--skip-plex-scan', action='store_true', help='skip the plex library scan')
     parser.add_argument('--verbose', action='store_true', help='print debug messages')
+    parser.add_argument('--validate-plex-scan', action='store_true', help='will check the exit code of the plex scan')
     parsed_args = parser.parse_args(args_without_script)
     return parsed_args
 
@@ -123,9 +124,10 @@ def plex_scan_library(parsed_args):
     else:
         plex_scanner_cmd = f'"{plex_scanner}" --scan'
 
+    disown = parsed_args.validate_plex_scan
     if host == 'localhost':
-        logging.debug('running scan locally')
-        sudo(plex_scanner_cmd, user='plex', password=sudo_password, hide=True, in_stream=False)
+        logging.info(f'running locally: {plex_scanner_cmd}')
+        sudo(plex_scanner_cmd, user='plex', password=sudo_password, hide=True, in_stream=False, disown=disown)
     else:
         logging.debug('running scan remotely')
         if '@' in host:
@@ -143,7 +145,8 @@ def plex_scan_library(parsed_args):
             port = 22
         logging.debug(f'host={host}, port={port}, user={username}')
         with Connection(host=host, port=port, user=username, connect_kwargs={'password': password}) as conn:
-            conn.sudo(plex_scanner_cmd, user='plex', password=sudo_password, hide=True, in_stream=False)
+            logging.info(f'running remotely: {plex_scanner_cmd}')
+            conn.sudo(plex_scanner_cmd, user='plex', password=sudo_password, hide=True, in_stream=False, disown=disown)
 
 
 if __name__ == '__main__':
@@ -156,5 +159,5 @@ if __name__ == '__main__':
         logging.getLogger().setLevel(logging.INFO)
         logging.getLogger('paramiko').setLevel(logging.ERROR)
     sync_plex_libraries(parsed_args)
-    if not parsed_args.skip_refresh:
+    if not parsed_args.skip_plex_scan:
         plex_scan_library(parsed_args)
