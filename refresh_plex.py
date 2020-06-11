@@ -67,15 +67,16 @@ class Config:
         else:
             self.ssh_username = input('ssh username: ')
             host_port = self.plex_host_string
-        self.ssh_password = getpass.getpass('ssh password (default: sudo password): ')
-        if not self.ssh_password:
-            self.ssh_password = self.sudo_password
         if ':' in host_port:
             self.ssh_host, port = host_port.rsplit(':', maxsplit=1)
             if port:
                 self.ssh_port = int(port)
         else:
             self.ssh_host = host_port
+        if self.ssh_host != 'localhost':
+            self.ssh_password = getpass.getpass('ssh password (default: sudo password): ')
+            if not self.ssh_password:
+                self.ssh_password = self.sudo_password
 
 
 def parse_args(args_without_script) -> Config:
