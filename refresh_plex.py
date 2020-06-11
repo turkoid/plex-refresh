@@ -46,6 +46,7 @@ def parse_args(args_without_script):
 def sync_plex_libraries(parsed_args):
     dry_run = parsed_args.dry_run
     metrics = {}
+    is_missing_libs = False
     for lib in ['movies', 'tv']:
         metrics[lib] = {
             'orphaned': {'dirs': 0, 'files': 0},
@@ -55,8 +56,10 @@ def sync_plex_libraries(parsed_args):
         plex_lib_dir = os.path.join(PLEX_MEDIA_BASE_DIR, lib)
         if not os.path.exists(physical_lib_dir):
             logging.error(f'physical lib dir is missing" {physical_lib_dir}')
+            is_missing_libs = True
         if not os.path.exists(plex_lib_dir):
             logging.error(f'plex lib dir is missing" {plex_lib_dir}')
+            is_missing_libs = True
 
         # remove orphaned media
         lib_metrics = metrics[lib]['orphaned']
@@ -106,6 +109,9 @@ def sync_plex_libraries(parsed_args):
                                                    metrics[lib]['orphaned']['files']))
         logging.info(
             '{} added dirs={}, files={}'.format(lib, metrics[lib]['added']['dirs'], metrics[lib]['added']['files']))
+
+    if is_missing_libs:
+        sys.exit(1)
 
 
 def plex_scan_library(parsed_args):
