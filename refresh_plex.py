@@ -84,7 +84,7 @@ def plex_scan_library(parsed_args):
     plex_scanner = os.path.join(plex_tools_dir, 'Plex Media Scanner')
     sudo_password = getpass.getpass('sudo password: ')
     if parsed_args.dry_run:
-        plex_scanner_cmd = f'"{plex_scanner}" --list'
+        plex_scanner_cmd = f'{plex_scanner} --list'
     else:
         plex_scanner_cmd = f'"{plex_scanner}" --scan'
 
@@ -107,7 +107,6 @@ def plex_scan_library(parsed_args):
             port = 22
         with Connection(host=host, port=port, user=username, connect_kwargs={'password': password}) as conn:
             res = conn.sudo(plex_scanner_cmd, user='plex', password=sudo_password, hide=True, in_stream=False)
-    print(res.stdout)
 
 
 if __name__ == '__main__':
