@@ -31,7 +31,7 @@ def parse_args(args_without_script):
     parser = argparse.ArgumentParser(
         description='synchronizes plex media folders'
     )
-    parser.add_argument('--plex-host', '-h', default='localhost', help='location of plexmediaserver')
+    parser.add_argument('--plex-host', '-s', default='localhost', help='location of plexmediaserver')
     parser.add_argument('--plex-tools-dir', '-p', default='/usr/lib/plexmediaserver',
                         help='location of the plex cli tools')
     parser.add_argument('--dry-run', default=False, help='test sync without making modifications to the disk')
