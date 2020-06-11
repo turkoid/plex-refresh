@@ -78,7 +78,7 @@ def sync_plex_libraries(parsed_args):
 
 
 def plex_scan_library(parsed_args):
-    host = parsed_args.host
+    host = parsed_args.plex_host
     plex_tools_dir = parsed_args.plex_tools_dir
     plex_scanner = os.path.join(plex_tools_dir, 'Plex Media Scanner')
     plex_user = os.environ.get('PLEX_USER', 'plex')
