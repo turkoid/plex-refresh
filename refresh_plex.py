@@ -89,7 +89,7 @@ def plex_scan_library(parsed_args):
         plex_scanner_cmd = f'"{plex_scanner}" --scan'
     if host == 'localhost':
         c = Context()
-        c.sudo(plex_scanner_cmd, user=plex_user, password=plex_password)
+        res = c.sudo(plex_scanner_cmd, user=plex_user, password=plex_password)
     else:
         username = os.environ.get('PLEX_SERVER_USERNAME')
         password = os.environ.get('PLEX_SERVER_PASSWORD')
@@ -99,7 +99,8 @@ def plex_scan_library(parsed_args):
         if not port:
             port = 22
         with Connection(host=host, port=port, user=username, connect_kwargs={'password': password}) as conn:
-            conn.sudo(plex_scanner_cmd, user=plex_user, password=plex_password)
+            res = conn.sudo(plex_scanner_cmd, user=plex_user, password=plex_password)
+    print(res.stdout)
 
 
 if __name__ == '__main__':
