@@ -1,5 +1,6 @@
 import argparse
 import getpass
+import logging
 import os
 import sys
 
@@ -36,46 +37,75 @@ def parse_args(args_without_script):
     parser.add_argument('--plex-tools-dir', '-p', default='/usr/lib/plexmediaserver',
                         help='location of the plex cli tools')
     parser.add_argument('--dry-run', action='store_true', help='test sync without making modifications to the disk')
+    parser.add_argument('--skip-refresh', action='store_true', help='skip the plex library refresh')
+    parser.add_argument('--verbose', action='store_true', help='print debug messages')
     parsed_args = parser.parse_args(args_without_script)
     return parsed_args
 
 
 def sync_plex_libraries(parsed_args):
     dry_run = parsed_args.dry_run
+    metrics = {}
     for lib in ['movies', 'tv']:
+        metrics[lib] = {
+            'orphaned': {'dirs': 0, 'files': 0},
+            'added': {'dirs': 0, 'files': 0}
+        }
         physical_lib_dir = os.path.join(PHYSICAL_MEDIA_BASE_DIR, lib)
         plex_lib_dir = os.path.join(PLEX_MEDIA_BASE_DIR, lib)
+        if not os.path.exists(physical_lib_dir):
+            logging.error(f'physical lib dir is missing" {physical_lib_dir}')
+        if not os.path.exists(plex_lib_dir):
+            logging.error(f'plex lib dir is missing" {plex_lib_dir}')
 
         # remove orphaned media
+        lib_metrics = metrics[lib]['orphaned']
         for root, dirs, files in os.walk(plex_lib_dir):
             for dir in dirs:
                 orphaned_path = is_orphaned_path(root, dir, plex_lib_dir, physical_lib_dir)
+                logging.debug(f'checking if {orphaned_path} is orphaned')
                 if orphaned_path:
                     os.removedirs(orphaned_path)
                     if not dry_run:
                         dirs.remove(dir)
-                    print(f'Directory removed: {orphaned_path}')
+                    logging.info(f'Directory removed: {orphaned_path}')
+                    lib_metrics['dirs'] += 1
+
             for file in files:
                 orphaned_path = is_orphaned_path(root, file, plex_lib_dir, physical_lib_dir)
+                logging.debug(f'checking if {orphaned_path} is orphaned')
                 if orphaned_path:
                     if not dry_run:
                         os.remove(orphaned_path)
-                    print(f'File removed: {orphaned_path}')
+                    logging.info(f'File removed: {orphaned_path}')
+                    lib_metrics['files'] += 1
 
         # add new symbolic links
+        lib_metrics = metrics[lib]['added']
         for root, dirs, files in os.walk(physical_lib_dir):
             for dir in dirs:
                 physical_path, new_path = is_new_path(root, dir, physical_lib_dir, plex_lib_dir)
+                logging.debug(f'checking if {new_path} is added')
                 if new_path:
                     if not dry_run:
                         os.mkdir(new_path)
-                    print(f'Directory created: {new_path}')
+                    logging.info(f'Directory created: {new_path}')
+                    lib_metrics['dirs'] += 1
             for file in files:
                 physical_path, new_path = is_new_path(root, file, physical_lib_dir, plex_lib_dir)
+                logging.debug(f'checking if {new_path} is added')
                 if new_path:
                     if not dry_run:
                         os.link(physical_path, new_path)
-                    print(f'Hardlink created: {new_path}')
+                    logging.info(f'Hardlink created: {new_path}')
+                    lib_metrics['files'] += 1
+
+    for lib in ['movies', 'tv']:
+        logging.info(
+            '{} orphaned dirs={}, files={}'.format(lib, metrics[lib]['orphaned']['dirs'],
+                                                   metrics[lib]['orphaned']['files']))
+        logging.info(
+            '{} added dirs={}, files={}'.format(lib, metrics[lib]['added']['dirs'], metrics[lib]['added']['files']))
 
 
 def plex_scan_library(parsed_args):
@@ -89,14 +119,15 @@ def plex_scan_library(parsed_args):
         plex_scanner_cmd = f'"{plex_scanner}" --scan'
 
     if host == 'localhost':
-        res = sudo(plex_scanner_cmd, user='plex', password=sudo_password, hide=True, in_stream=False)
+        logging.debug('running scan locally')
+        sudo(plex_scanner_cmd, user='plex', password=sudo_password, hide=True, in_stream=False)
     else:
+        logging.debug('running scan remotely')
         if '@' in host:
             username, host_port = host.split('@', maxsplit=1)
         else:
             username = input('ssh username: ')
             host_port = host
-
         password = getpass.getpass('ssh password: ')
         if not password:
             password = sudo_password
@@ -105,11 +136,17 @@ def plex_scan_library(parsed_args):
         else:
             host = host_port
             port = 22
+        logging.debug(f'host={host}, port={port}, user={username}')
         with Connection(host=host, port=port, user=username, connect_kwargs={'password': password}) as conn:
-            res = conn.sudo(plex_scanner_cmd, user='plex', password=sudo_password, hide=True, in_stream=False)
+            conn.sudo(plex_scanner_cmd, user='plex', password=sudo_password, hide=True, in_stream=False)
 
 
 if __name__ == '__main__':
     parsed_args = parse_args(sys.argv[1:])
+    if parsed_args.dry_run:
+        logging.info('Doing a dry run, nothing is modified')
+    if parsed_args.verbose:
+        logging.getLogger().setLevel(logging.DEBUG)
     sync_plex_libraries(parsed_args)
-    plex_scan_library(parsed_args)
+    if not parsed_args.skip_refresh:
+        plex_scan_library(parsed_args)
