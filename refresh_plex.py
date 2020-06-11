@@ -135,7 +135,7 @@ def plex_scan_library(parsed_args):
         else:
             username = input('ssh username: ')
             host_port = host
-        password = getpass.getpass('ssh password: ')
+        password = getpass.getpass('ssh password (default: sudo password): ')
         if not password:
             password = sudo_password
         if ':' in host_port:
