@@ -11,7 +11,7 @@ from invoke import sudo
 LIBRARIES = ['movies', 'tv']
 
 
-def is_orphaned_path(root, name, plex_lib_dir, physical_lib_dir) -> str:
+def is_orphaned_path(root, name, plex_lib_dir, physical_lib_dir) -> Optional[str]:
     plex_path = os.path.join(root, name)
     rel_path = os.path.relpath(plex_path, start=plex_lib_dir)
     physical_path = os.path.join(physical_lib_dir, rel_path)
@@ -21,7 +21,7 @@ def is_orphaned_path(root, name, plex_lib_dir, physical_lib_dir) -> str:
     return None
 
 
-def is_new_path(root, name, physical_lib_dir, plex_lib_dir) -> Tuple[str, str]:
+def is_new_path(root, name, physical_lib_dir, plex_lib_dir) -> Tuple[Optional[str], Optional[str]]:
     physical_path = os.path.join(root, name)
     rel_path = os.path.relpath(physical_path, physical_lib_dir)
     plex_path = os.path.join(plex_lib_dir, rel_path)
@@ -172,7 +172,8 @@ def plex_scan_library(config: Config):
         with Connection(host=config.ssh_username, port=config.ssh_port, user=config.ssh_username,
                         connect_kwargs={'password': config.ssh_password}) as conn:
             logging.info(f'running remotely: {plex_scanner_cmd}')
-            conn.sudo(plex_scanner_cmd, user='plex', password=config.sudo_password, hide=True, in_stream=False, disown=disown)
+            conn.sudo(plex_scanner_cmd, user='plex', password=config.sudo_password, hide=True, in_stream=False,
+                      disown=disown)
 
 
 if __name__ == '__main__':
