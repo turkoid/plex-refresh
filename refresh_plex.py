@@ -83,7 +83,10 @@ def plex_scan_library(parsed_args):
     plex_scanner = os.path.join(plex_tools_dir, 'Plex Media Scanner')
     plex_user = os.environ.get('PLEX_USER', 'plex')
     plex_password = os.environ.get('PLEX_PASSWORD', '')
-    plex_scanner_cmd = f'"{plex_scanner}" --scan'
+    if parsed_args.dry_run:
+        plex_scanner_cmd = f'"{plex_scanner}" --list'
+    else:
+        plex_scanner_cmd = f'"{plex_scanner}" --scan'
     if host == 'localhost':
         c = Context()
         c.sudo(plex_scanner_cmd, user=plex_user, password=plex_password)
