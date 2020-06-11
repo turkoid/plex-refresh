@@ -180,13 +180,13 @@ def plex_scan_library(config: Config):
 
 if __name__ == '__main__':
     config = parse_args(sys.argv[1:])
-    if config.dry_run:
-        logging.info('Doing a dry run, nothing is modified')
     if config.verbose:
         logging.getLogger().setLevel(logging.DEBUG)
     else:
         logging.getLogger().setLevel(logging.INFO)
         logging.getLogger('paramiko').setLevel(logging.ERROR)
+    if config.dry_run:
+        logging.info('Doing a dry run, nothing is modified')
     is_valid = config.validate()
     if is_valid:
         config.prompt()
