@@ -170,7 +170,7 @@ def plex_scan_library(config: Config):
         sudo(plex_scanner_cmd, user='plex', password=config.sudo_password, hide=True, in_stream=False, disown=disown)
     else:
         logging.debug(f'host={config.ssh_host}, port={config.ssh_port}, user={config.ssh_username}')
-        with Connection(host=config.ssh_username, port=config.ssh_port, user=config.ssh_username,
+        with Connection(host=config.ssh_host, port=config.ssh_port, user=config.ssh_username,
                         connect_kwargs={'password': config.ssh_password}) as conn:
             logging.info(f'running remotely: {plex_scanner_cmd}')
             conn.sudo(plex_scanner_cmd, user='plex', password=config.sudo_password, hide=True, in_stream=False,
