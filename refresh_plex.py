@@ -34,7 +34,7 @@ def parse_args(args_without_script):
     parser.add_argument('--plex-host', '-s', default='localhost', help='location of plexmediaserver')
     parser.add_argument('--plex-tools-dir', '-p', default='/usr/lib/plexmediaserver',
                         help='location of the plex cli tools')
-    parser.add_argument('--dry-run', default=False, help='test sync without making modifications to the disk')
+    parser.add_argument('--dry-run', action='store_true', help='test sync without making modifications to the disk')
     parsed_args = parser.parse_args(args_without_script)
     return parsed_args
 
