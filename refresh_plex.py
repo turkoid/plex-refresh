@@ -1,9 +1,9 @@
 import argparse
+import getpass
 import os
 import sys
 
 from fabric import Connection
-from invoke import Context
 
 PHYSICAL_MEDIA_BASE_DIR = '/media/d'
 PLEX_MEDIA_BASE_DIR = '/media/d/shares/public'
@@ -81,25 +81,31 @@ def plex_scan_library(parsed_args):
     host = parsed_args.plex_host
     plex_tools_dir = parsed_args.plex_tools_dir
     plex_scanner = os.path.join(plex_tools_dir, 'Plex Media Scanner')
-    plex_user = os.environ.get('PLEX_USER', 'plex')
-    plex_password = os.environ.get('PLEX_PASSWORD', '')
+    sudo_password = getpass.getpass('sudo password: ')
     if parsed_args.dry_run:
         plex_scanner_cmd = f'"{plex_scanner}" --list'
     else:
         plex_scanner_cmd = f'"{plex_scanner}" --scan'
+
     if host == 'localhost':
-        c = Context()
-        res = c.sudo(plex_scanner_cmd, user=plex_user, password=plex_password)
+        res = c.sudo(plex_scanner_cmd, user='plex', password=sudo_password)
     else:
-        username = os.environ.get('PLEX_SERVER_USERNAME')
-        password = os.environ.get('PLEX_SERVER_PASSWORD')
-        port = None
-        if ':' in host:
+        if '@' in host:
+            username, host_port = host.split('@', maxsplit=1)
+        else:
+            username = input('ssh username: ')
+            host_port = host
+
+        password = getpass.getpass('ssh password: ')
+        if not password:
+            password = sudo_password
+        if ':' in host_port:
             host, port = host.rsplit(':', maxsplit=1)
-        if not port:
+        else:
+            host = host_port
             port = 22
         with Connection(host=host, port=port, user=username, connect_kwargs={'password': password}) as conn:
-            res = conn.sudo(plex_scanner_cmd, user=plex_user, password=plex_password)
+            res = conn.sudo(plex_scanner_cmd, user='plex', password=sudo_password)
     print(res.stdout)
 
 
