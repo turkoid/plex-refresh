@@ -65,7 +65,6 @@ class Config:
         if '@' in self.plex_host_string:
             self.ssh_username, host_port = self.plex_host_string.split('@', maxsplit=1)
         else:
-            self.ssh_username = input('ssh username: ')
             host_port = self.plex_host_string
         if ':' in host_port:
             self.ssh_host, port = host_port.rsplit(':', maxsplit=1)
@@ -74,6 +73,8 @@ class Config:
         else:
             self.ssh_host = host_port
         if self.ssh_host != 'localhost':
+            if not self.ssh_username:
+                self.ssh_username = input('ssh username: ')
             self.ssh_password = getpass.getpass('ssh password (default: sudo password): ')
             if not self.ssh_password:
                 self.ssh_password = self.sudo_password
