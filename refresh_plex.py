@@ -12,6 +12,7 @@ def is_orphaned_path(root, name, plex_lib_dir, physical_lib_dir):
     plex_path = os.path.join(root, name)
     rel_path = os.path.relpath(plex_path, start=plex_lib_dir)
     physical_path = os.path.join(physical_lib_dir, rel_path)
+    logging.debug(f'checking if {plex_path} is orphaned')
     if not os.path.exists(physical_path):
         return plex_path
     return None
@@ -21,6 +22,7 @@ def is_new_path(root, name, physical_lib_dir, plex_lib_dir):
     physical_path = os.path.join(root, name)
     rel_path = os.path.relpath(physical_path, physical_lib_dir)
     plex_path = os.path.join(plex_lib_dir, rel_path)
+    logging.debug(f'checking if {physical_path} is added')
     if not os.path.exists(plex_path):
         return physical_path, plex_path
     return None, None
@@ -67,7 +69,6 @@ def sync_plex_libraries(parsed_args):
         for root, dirs, files in os.walk(plex_lib_dir):
             for dir in dirs:
                 orphaned_path = is_orphaned_path(root, dir, plex_lib_dir, physical_lib_dir)
-                logging.debug(f'checking if {orphaned_path} is orphaned')
                 if orphaned_path:
                     os.removedirs(orphaned_path)
                     if not dry_run:
@@ -77,7 +78,6 @@ def sync_plex_libraries(parsed_args):
 
             for file in files:
                 orphaned_path = is_orphaned_path(root, file, plex_lib_dir, physical_lib_dir)
-                logging.debug(f'checking if {orphaned_path} is orphaned')
                 if orphaned_path:
                     if not dry_run:
                         os.remove(orphaned_path)
@@ -89,7 +89,6 @@ def sync_plex_libraries(parsed_args):
         for root, dirs, files in os.walk(physical_lib_dir):
             for dir in dirs:
                 physical_path, new_path = is_new_path(root, dir, physical_lib_dir, plex_lib_dir)
-                logging.debug(f'checking if {new_path} is added')
                 if new_path:
                     if not dry_run:
                         os.mkdir(new_path)
@@ -97,7 +96,6 @@ def sync_plex_libraries(parsed_args):
                     lib_metrics['dirs'] += 1
             for file in files:
                 physical_path, new_path = is_new_path(root, file, physical_lib_dir, plex_lib_dir)
-                logging.debug(f'checking if {new_path} is added')
                 if new_path:
                     if not dry_run:
                         os.link(physical_path, new_path)
