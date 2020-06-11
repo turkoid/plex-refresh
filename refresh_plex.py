@@ -169,7 +169,6 @@ def plex_scan_library(config: Config):
         logging.info(f'running locally: {plex_scanner_cmd}')
         sudo(plex_scanner_cmd, user='plex', password=config.sudo_password, hide=True, in_stream=False, disown=disown)
     else:
-        logging.debug('running scan remotely')
         logging.debug(f'host={config.ssh_host}, port={config.ssh_port}, user={config.ssh_username}')
         with Connection(host=config.ssh_username, port=config.ssh_port, user=config.ssh_username,
                         connect_kwargs={'password': config.ssh_password}) as conn:
@@ -185,6 +184,8 @@ if __name__ == '__main__':
     else:
         logging.getLogger().setLevel(logging.INFO)
         logging.getLogger('paramiko').setLevel(logging.ERROR)
+        logging.getLogger('fabric').setLevel(logging.ERROR)
+        logging.getLogger('invoke').setLevel(logging.ERROR)
     if config.dry_run:
         logging.info('Doing a dry run, nothing is modified')
     is_valid = config.validate()
