@@ -124,7 +124,7 @@ def plex_scan_library(parsed_args):
     else:
         plex_scanner_cmd = f'"{plex_scanner}" --scan'
 
-    disown = parsed_args.validate_plex_scan
+    disown = not parsed_args.validate_plex_scan
     if host == 'localhost':
         logging.info(f'running locally: {plex_scanner_cmd}')
         sudo(plex_scanner_cmd, user='plex', password=sudo_password, hide=True, in_stream=False, disown=disown)
