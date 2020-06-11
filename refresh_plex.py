@@ -3,7 +3,7 @@ import os
 import sys
 
 from fabric import Connection
-from invoke import run, Context
+from invoke import Context
 
 PHYSICAL_MEDIA_BASE_DIR = '/media/d'
 PLEX_MEDIA_BASE_DIR = '/media/d/shares/public'
