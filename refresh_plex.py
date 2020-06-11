@@ -7,9 +7,6 @@ import sys
 from fabric import Connection
 from invoke import sudo
 
-PHYSICAL_MEDIA_BASE_DIR = '/media/d'
-PLEX_MEDIA_BASE_DIR = '/media/d/shares/public'
-
 
 def is_orphaned_path(root, name, plex_lib_dir, physical_lib_dir):
     plex_path = os.path.join(root, name)
@@ -33,6 +30,8 @@ def parse_args(args_without_script):
     parser = argparse.ArgumentParser(
         description='synchronizes plex media folders'
     )
+    parser.add_argument('--physical-media-base-dir', '-r', required=True, help='the location of the actual media')
+    parser.add_argument('--plex-media-base-dir', '-l', required=True, help='the location of the links')
     parser.add_argument('--plex-host', '-s', default='localhost', help='location of plexmediaserver')
     parser.add_argument('--plex-tools-dir', '-p', default='/usr/lib/plexmediaserver',
                         help='location of the plex cli tools')
@@ -45,6 +44,8 @@ def parse_args(args_without_script):
 
 def sync_plex_libraries(parsed_args):
     dry_run = parsed_args.dry_run
+    physical_media_base_dir = parsed_args.physical_media_base_dir
+    plex_media_base_dir = parsed_args.plex_media_base_dir
     metrics = {}
     is_missing_libs = False
     for lib in ['movies', 'tv']:
@@ -52,13 +53,13 @@ def sync_plex_libraries(parsed_args):
             'orphaned': {'dirs': 0, 'files': 0},
             'added': {'dirs': 0, 'files': 0}
         }
-        physical_lib_dir = os.path.join(PHYSICAL_MEDIA_BASE_DIR, lib)
-        plex_lib_dir = os.path.join(PLEX_MEDIA_BASE_DIR, lib)
+        physical_lib_dir = os.path.join(physical_media_base_dir, lib)
+        plex_lib_dir = os.path.join(plex_media_base_dir, lib)
         if not os.path.exists(physical_lib_dir):
-            logging.error(f'physical lib dir is missing" {physical_lib_dir}')
+            logging.error(f'physical lib dir is missing: {physical_lib_dir}')
             is_missing_libs = True
         if not os.path.exists(plex_lib_dir):
-            logging.error(f'plex lib dir is missing" {plex_lib_dir}')
+            logging.error(f'plex lib dir is missing: {plex_lib_dir}')
             is_missing_libs = True
 
         # remove orphaned media
