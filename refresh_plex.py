@@ -154,6 +154,7 @@ if __name__ == '__main__':
         logging.getLogger().setLevel(logging.DEBUG)
     else:
         logging.getLogger().setLevel(logging.INFO)
+        logging.getLogger('paramiko').setLevel(logging.ERROR)
     sync_plex_libraries(parsed_args)
     if not parsed_args.skip_refresh:
         plex_scan_library(parsed_args)
