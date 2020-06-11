@@ -147,6 +147,8 @@ if __name__ == '__main__':
         logging.info('Doing a dry run, nothing is modified')
     if parsed_args.verbose:
         logging.getLogger().setLevel(logging.DEBUG)
+    else:
+        logging.getLogger().setLevel(logging.INFO)
     sync_plex_libraries(parsed_args)
     if not parsed_args.skip_refresh:
         plex_scan_library(parsed_args)
