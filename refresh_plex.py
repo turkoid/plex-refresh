@@ -84,7 +84,7 @@ def plex_scan_library(parsed_args):
     plex_scanner = os.path.join(plex_tools_dir, 'Plex Media Scanner')
     sudo_password = getpass.getpass('sudo password: ')
     if parsed_args.dry_run:
-        plex_scanner_cmd = f'{plex_scanner} --list'
+        plex_scanner_cmd = f'"{plex_scanner}" --list'
     else:
         plex_scanner_cmd = f'"{plex_scanner}" --scan'
 
