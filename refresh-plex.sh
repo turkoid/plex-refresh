@@ -2,5 +2,5 @@
 
 source `which virtualenvwrapper.sh`
 workon refresh-plex
-python refresh_plex
+python refresh_plex.py "$@"
 deactivate
