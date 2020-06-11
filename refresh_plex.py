@@ -88,7 +88,7 @@ def plex_scan_library(parsed_args):
         plex_scanner_cmd = f'"{plex_scanner}" --scan'
 
     if host == 'localhost':
-        res = c.sudo(plex_scanner_cmd, user='plex', password=sudo_password)
+        res = sudo(plex_scanner_cmd, user='plex', password=sudo_password)
     else:
         if '@' in host:
             username, host_port = host.split('@', maxsplit=1)
