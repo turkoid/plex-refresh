@@ -210,11 +210,11 @@ def parse_args(args_without_script) -> Config:
         "--dest-base-dir", "-D", required=True, help="the location of the links"
     )
     parser.add_argument(
-        "--plex-host", "-s", default="localhost", help="location of plexmediaserver"
+        "--plex-host", "-H", default="localhost", help="location of plexmediaserver"
     )
     parser.add_argument(
         "--plex-bin-dir",
-        "-p",
+        "-b",
         default="/usr/lib/plexmediaserver",
         help="location of the plex binaries",
     )
