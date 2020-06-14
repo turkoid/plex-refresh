@@ -15,7 +15,7 @@ from invoke import sudo
 
 LIBRARIES = ["movies", "tv"]
 
-PathLike = Union[PurePath, PurePosixPath, os.PathLike]
+PathLike = Union[PurePath, os.PathLike]
 
 
 def is_orphaned_path(
@@ -47,7 +47,7 @@ class Config:
         self.src_base_dir: PurePath = PurePath(parsed_args.src_base_dir)
         self.dest_base_dir: PurePath = PurePath(parsed_args.dest_base_dir)
         self.plex_host_string: str = parsed_args.plex_host
-        self.plex_bin_dir: PurePath = PurePosixPath(parsed_args.plex_bin_dir)
+        self.plex_bin_dir: PurePosixPath = PurePosixPath(parsed_args.plex_bin_dir)
         self.dry_run: bool = parsed_args.dry_run
         self.skip_plex_scan: bool = parsed_args.skip_plex_scan
         self.verbose: bool = parsed_args.verbose
