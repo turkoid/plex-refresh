@@ -7,7 +7,6 @@ from pathlib import PurePath
 from pathlib import PurePosixPath
 from typing import List
 from typing import Optional
-from typing import Tuple
 from typing import Union
 
 from fabric import Connection
@@ -18,28 +17,40 @@ LIBRARIES = ["movies", "tv"]
 PathLike = Union[PurePath, os.PathLike]
 
 
-def is_orphaned_path(
-    root: str, name: str, src_lib_dir: PathLike, dest_lib_dir: PathLike
-) -> Optional[PathLike]:
-    plex_path = PurePath(root).joinpath(name)
-    rel_path = plex_path.relative_to(dest_lib_dir)
-    physical_path = src_lib_dir.joinpath(rel_path)
-    logging.debug(f"checking if {plex_path} is orphaned")
-    if not os.path.exists(physical_path):
-        return plex_path
-    return None
+def check_removed_media(
+    root: str, name: str, src_lib_dir: PathLike, dest_lib_dir: PathLike, is_dirs: bool
+) -> bool:
+    dest_path: PathLike = PurePath(root).joinpath(name)
+    rel_path: PathLike = dest_path.relative_to(dest_lib_dir)
+    src_path: PathLike = src_lib_dir.joinpath(rel_path)
+    logging.debug(f"checking if {dest_path} is removed")
+    if not os.path.exists(src_path):
+        if is_dirs:
+            os.removedirs(dest_path)
+            logging.info(f"Directory removed: {src_path}")
+        else:
+            os.remove(dest_path)
+            logging.info(f"File removed: {src_path}")
+        return True
+    return False
 
 
-def is_new_path(
-    root: str, name: str, src_lib_dir: PathLike, dest_lib_dir: PathLike
-) -> Tuple[Optional[PathLike], Optional[PathLike]]:
-    physical_path = PurePath(root).joinpath(name)
-    rel_path = physical_path.relative_to(src_lib_dir)
-    plex_path = dest_lib_dir.joinpath(rel_path)
-    logging.debug(f"checking if {physical_path} is added")
-    if not os.path.exists(plex_path):
-        return physical_path, plex_path
-    return None, None
+def check_added_media(
+    root: str, name: str, src_lib_dir: PathLike, dest_lib_dir: PathLike, is_dirs
+) -> bool:
+    src_path: PathLike = PurePath(root).joinpath(name)
+    rel_path: PathLike = src_path.relative_to(src_lib_dir)
+    dest_path: PathLike = dest_lib_dir.joinpath(rel_path)
+    logging.debug(f"checking if {src_path} is added")
+    if not os.path.exists(dest_path):
+        if is_dirs:
+            os.mkdir(dest_path)
+            logging.info(f"Directory created: {dest_path}")
+        else:
+            os.link(src_path, dest_path)
+            logging.info(f"Hardlink created: {src_path}")
+        return True
+    return False
 
 
 class Config:
@@ -106,66 +117,39 @@ def sync_plex_libraries(config: Config):
     metrics = {}
     for lib in LIBRARIES:
         metrics[lib] = {
-            "orphaned": {"dirs": 0, "files": 0},
+            "removed": {"dirs": 0, "files": 0},
             "added": {"dirs": 0, "files": 0},
         }
-        physical_lib_dir: PathLike = config.src_base_dir.joinpath(lib)
-        plex_lib_dir: PathLike = config.dest_base_dir.joinpath(lib)
-        if not os.path.exists(physical_lib_dir):
-            logging.error(f"physical lib dir is missing: {physical_lib_dir}")
-        if not os.path.exists(plex_lib_dir):
-            logging.error(f"plex lib dir is missing: {plex_lib_dir}")
+        src_lib_dir: PathLike = config.src_base_dir.joinpath(lib)
+        dest_lib_dir: PathLike = config.dest_base_dir.joinpath(lib)
+        if not os.path.exists(src_lib_dir):
+            logging.error(f"src lib dir is missing: {src_lib_dir}")
+        if not os.path.exists(dest_lib_dir):
+            logging.error(f"dest lib dir is missing: {dest_lib_dir}")
 
-        # remove orphaned media
-        lib_metrics = metrics[lib]["orphaned"]
-        for root, dirs, files in os.walk(plex_lib_dir):
+        lib_metrics = metrics[lib]["removed"]
+        for root, dirs, files in os.walk(dest_lib_dir):
             for dir in dirs:
-                orphaned_path = is_orphaned_path(
-                    root, dir, physical_lib_dir, plex_lib_dir
-                )
-                if orphaned_path:
-                    if not config.dry_run:
-                        os.removedirs(orphaned_path)
+                if check_removed_media(root, dir, src_lib_dir, dest_lib_dir, True):
                     dirs.remove(dir)
-                    logging.info(f"Directory removed: {orphaned_path}")
                     lib_metrics["dirs"] += 1
-
             for file in files:
-                orphaned_path = is_orphaned_path(
-                    root, file, physical_lib_dir, plex_lib_dir
-                )
-                if orphaned_path:
-                    if not config.dry_run:
-                        os.remove(orphaned_path)
-                    logging.info(f"File removed: {orphaned_path}")
+                if check_removed_media(root, file, src_lib_dir, dest_lib_dir, False):
                     lib_metrics["files"] += 1
 
-        # add new symbolic links
         lib_metrics = metrics[lib]["added"]
-        for root, dirs, files in os.walk(physical_lib_dir):
+        for root, dirs, files in os.walk(src_lib_dir):
             for dir in dirs:
-                physical_path, new_path = is_new_path(
-                    root, dir, physical_lib_dir, plex_lib_dir
-                )
-                if new_path:
-                    if not config.dry_run:
-                        os.mkdir(new_path)
-                    logging.info(f"Directory created: {new_path}")
+                if check_added_media(root, dir, src_lib_dir, dest_lib_dir, True):
                     lib_metrics["dirs"] += 1
             for file in files:
-                physical_path, new_path = is_new_path(
-                    root, file, physical_lib_dir, plex_lib_dir
-                )
-                if new_path:
-                    if not config.dry_run:
-                        os.link(physical_path, new_path)
-                    logging.info(f"Hardlink created: {new_path}")
+                if check_added_media(root, file, src_lib_dir, dest_lib_dir, False):
                     lib_metrics["files"] += 1
 
     for lib in LIBRARIES:
         logging.info(
-            "{} orphaned dirs={}, files={}".format(
-                lib, metrics[lib]["orphaned"]["dirs"], metrics[lib]["orphaned"]["files"]
+            "{} removed dirs={}, files={}".format(
+                lib, metrics[lib]["removed"]["dirs"], metrics[lib]["removed"]["files"]
             )
         )
         logging.info(
