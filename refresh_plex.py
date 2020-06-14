@@ -8,16 +8,19 @@ from pathlib import PurePosixPath
 from typing import List
 from typing import Optional
 from typing import Tuple
+from typing import Union
 
 from fabric import Connection
 from invoke import sudo
 
 LIBRARIES = ["movies", "tv"]
 
+PathLike = Union[PurePath, PurePosixPath, os.PathLike]
+
 
 def is_orphaned_path(
-    root: str, name: str, src_lib_dir: PurePath, dest_lib_dir: PurePath
-) -> Optional[PurePath]:
+    root: str, name: str, src_lib_dir: PathLike, dest_lib_dir: PathLike
+) -> Optional[PathLike]:
     plex_path = PurePath(root).joinpath(name)
     rel_path = plex_path.relative_to(dest_lib_dir)
     physical_path = src_lib_dir.joinpath(rel_path)
@@ -28,8 +31,8 @@ def is_orphaned_path(
 
 
 def is_new_path(
-    root: str, name: str, src_lib_dir: PurePath, dest_lib_dir: PurePath
-) -> Tuple[Optional[PurePath], Optional[PurePath]]:
+    root: str, name: str, src_lib_dir: PathLike, dest_lib_dir: PathLike
+) -> Tuple[Optional[PathLike], Optional[PathLike]]:
     physical_path = PurePath(root).joinpath(name)
     rel_path = physical_path.relative_to(src_lib_dir)
     plex_path = dest_lib_dir.joinpath(rel_path)
@@ -59,7 +62,7 @@ class Config:
         is_valid = True
         for lib in LIBRARIES:
             for base_dir in [self.src_base_dir, self.dest_base_dir]:
-                lib_dir = base_dir.joinpath(lib)
+                lib_dir: PathLike = base_dir.joinpath(lib)
                 if not os.path.exists(lib_dir):
                     logging.error(f"lib dir is missing: {lib_dir}")
                     is_valid = False
@@ -106,8 +109,8 @@ def sync_plex_libraries(config: Config):
             "orphaned": {"dirs": 0, "files": 0},
             "added": {"dirs": 0, "files": 0},
         }
-        physical_lib_dir = config.src_base_dir.joinpath(lib)
-        plex_lib_dir = config.dest_base_dir.joinpath(lib)
+        physical_lib_dir: PathLike = config.src_base_dir.joinpath(lib)
+        plex_lib_dir: PathLike = config.dest_base_dir.joinpath(lib)
         if not os.path.exists(physical_lib_dir):
             logging.error(f"physical lib dir is missing: {physical_lib_dir}")
         if not os.path.exists(plex_lib_dir):
