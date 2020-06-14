@@ -52,6 +52,10 @@ class Config:
 
     def validate(self) -> bool:
         is_valid = True
+        if not self.skip_plex_scan:
+            if not os.path.exists(self.plex_bin_dir):
+                logging.error(f"plex bin dir is missing: {self.plex_bin_dir}")
+                is_valid = False
         for lib in LIBRARIES:
             for base_dir in [self.src_base_dir, self.dest_base_dir]:
                 lib_dir = os.path.join(base_dir, lib)
