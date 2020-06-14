@@ -3,6 +3,9 @@ import getpass
 import logging
 import os
 import sys
+from pathlib import PurePath
+from pathlib import PurePosixPath
+from typing import List
 from typing import Optional
 from typing import Tuple
 
@@ -12,10 +15,12 @@ from invoke import sudo
 LIBRARIES = ["movies", "tv"]
 
 
-def is_orphaned_path(root, name, plex_lib_dir, physical_lib_dir) -> Optional[str]:
-    plex_path = os.path.join(root, name)
-    rel_path = os.path.relpath(plex_path, start=plex_lib_dir)
-    physical_path = os.path.join(physical_lib_dir, rel_path)
+def is_orphaned_path(
+    root: str, name: str, src_lib_dir: PurePath, dest_lib_dir: PurePath
+) -> Optional[PurePath]:
+    plex_path = PurePath(root).joinpath(name)
+    rel_path = plex_path.relative_to(dest_lib_dir)
+    physical_path = src_lib_dir.joinpath(rel_path)
     logging.debug(f"checking if {plex_path} is orphaned")
     if not os.path.exists(physical_path):
         return plex_path
@@ -23,11 +28,11 @@ def is_orphaned_path(root, name, plex_lib_dir, physical_lib_dir) -> Optional[str
 
 
 def is_new_path(
-    root, name, physical_lib_dir, plex_lib_dir
-) -> Tuple[Optional[str], Optional[str]]:
-    physical_path = os.path.join(root, name)
-    rel_path = os.path.relpath(physical_path, physical_lib_dir)
-    plex_path = os.path.join(plex_lib_dir, rel_path)
+    root: str, name: str, src_lib_dir: PurePath, dest_lib_dir: PurePath
+) -> Tuple[Optional[PurePath], Optional[PurePath]]:
+    physical_path = PurePath(root).joinpath(name)
+    rel_path = physical_path.relative_to(src_lib_dir)
+    plex_path = dest_lib_dir.joinpath(rel_path)
     logging.debug(f"checking if {physical_path} is added")
     if not os.path.exists(plex_path):
         return physical_path, plex_path
@@ -36,14 +41,14 @@ def is_new_path(
 
 class Config:
     def __init__(self, parsed_args):
-        self.src_base_dir: str = parsed_args.src_base_dir
-        self.dest_base_dir: str = parsed_args.dest_base_dir
+        self.src_base_dir: PurePath = PurePath(parsed_args.src_base_dir)
+        self.dest_base_dir: PurePath = PurePath(parsed_args.dest_base_dir)
         self.plex_host_string: str = parsed_args.plex_host
-        self.plex_bin_dir: str = parsed_args.plex_bin_dir
+        self.plex_bin_dir: PurePath = PurePosixPath(parsed_args.plex_bin_dir)
         self.dry_run: bool = parsed_args.dry_run
         self.skip_plex_scan: bool = parsed_args.skip_plex_scan
-        self.validate_plex_scan: bool = parsed_args.validate_plex_scan
         self.verbose: bool = parsed_args.verbose
+        self.prompt_for_passwords: List[str] = parsed_args.prompt_for_passwords
         self.sudo_password: Optional[str] = None
         self.ssh_host: str = ""
         self.ssh_port: int = 22
@@ -52,23 +57,25 @@ class Config:
 
     def validate(self) -> bool:
         is_valid = True
-        if not self.skip_plex_scan:
-            if not os.path.exists(self.plex_bin_dir):
-                logging.error(f"plex bin dir is missing: {self.plex_bin_dir}")
-                is_valid = False
         for lib in LIBRARIES:
             for base_dir in [self.src_base_dir, self.dest_base_dir]:
-                lib_dir = os.path.join(base_dir, lib)
+                lib_dir = base_dir.joinpath(lib)
                 if not os.path.exists(lib_dir):
                     logging.error(f"lib dir is missing: {lib_dir}")
                     is_valid = False
+        for password in self.prompt_for_passwords:
+            if password not in ["sudo", "ssh"]:
+                logging.error(f"only [sudo, ssh] are valid for prompt-for-passwords")
+                is_valid = False
+                break
         return is_valid
 
     def prompt(self):
         if self.skip_plex_scan:
             return
 
-        self.sudo_password = getpass.getpass("sudo password: ")
+        if "sudo" in self.prompt_for_passwords:
+            self.sudo_password = getpass.getpass("sudo password: ")
         if "@" in self.plex_host_string:
             self.ssh_username, host_port = self.plex_host_string.split("@", maxsplit=1)
         else:
@@ -82,9 +89,12 @@ class Config:
         if self.ssh_host != "localhost":
             if not self.ssh_username:
                 self.ssh_username = input("ssh username: ")
-            self.ssh_password = getpass.getpass(
-                "ssh password (default: sudo password): "
-            )
+            if "ssh" in self.prompt_for_passwords:
+                if self.sudo_password:
+                    msg = "ssh password (default: sudo password): "
+                else:
+                    msg = "ssh password : "
+                self.ssh_password = getpass.getpass(msg)
             if not self.ssh_password:
                 self.ssh_password = self.sudo_password
 
@@ -96,8 +106,8 @@ def sync_plex_libraries(config: Config):
             "orphaned": {"dirs": 0, "files": 0},
             "added": {"dirs": 0, "files": 0},
         }
-        physical_lib_dir = os.path.join(config.src_base_dir, lib)
-        plex_lib_dir = os.path.join(config.dest_base_dir, lib)
+        physical_lib_dir = config.src_base_dir.joinpath(lib)
+        plex_lib_dir = config.dest_base_dir.joinpath(lib)
         if not os.path.exists(physical_lib_dir):
             logging.error(f"physical lib dir is missing: {physical_lib_dir}")
         if not os.path.exists(plex_lib_dir):
@@ -108,7 +118,7 @@ def sync_plex_libraries(config: Config):
         for root, dirs, files in os.walk(plex_lib_dir):
             for dir in dirs:
                 orphaned_path = is_orphaned_path(
-                    root, dir, plex_lib_dir, physical_lib_dir
+                    root, dir, physical_lib_dir, plex_lib_dir
                 )
                 if orphaned_path:
                     if not config.dry_run:
@@ -119,7 +129,7 @@ def sync_plex_libraries(config: Config):
 
             for file in files:
                 orphaned_path = is_orphaned_path(
-                    root, file, plex_lib_dir, physical_lib_dir
+                    root, file, physical_lib_dir, plex_lib_dir
                 )
                 if orphaned_path:
                     if not config.dry_run:
@@ -163,22 +173,21 @@ def sync_plex_libraries(config: Config):
 
 
 def plex_scan_library(config: Config):
-    plex_scanner = os.path.join(config.plex_bin_dir, "Plex Media Scanner")
+    plex_scanner = config.plex_bin_dir.joinpath("Plex Media Scanner")
     if config.dry_run:
         plex_scanner_cmd = f'"{plex_scanner}" --list'
     else:
-        plex_scanner_cmd = f'"{plex_scanner}" --scan'
+        plex_scanner_cmd = f'"{plex_scanner}" --list'
 
-    disown = not config.validate_plex_scan
+    # plex_scanner_cmd = '"touch" /root/blah.txt'
     if config.ssh_host == "localhost":
         logging.info(f"running locally: {plex_scanner_cmd}")
-        sudo(
+        res = sudo(
             plex_scanner_cmd,
             user="plex",
             password=config.sudo_password,
             hide=True,
             in_stream=False,
-            disown=disown,
         )
     else:
         logging.debug(
@@ -191,14 +200,16 @@ def plex_scan_library(config: Config):
             connect_kwargs={"password": config.ssh_password},
         ) as conn:
             logging.info(f"running remotely: {plex_scanner_cmd}")
-            conn.sudo(
+            print(config.sudo_password)
+            res = conn.sudo(
                 plex_scanner_cmd,
                 user="plex",
-                password=config.sudo_password,
-                hide=True,
-                in_stream=False,
-                disown=disown,
+                # password=config.sudo_password,
+                # hide=True,
+                # in_stream=False,
+                pty=True,
             )
+    print(res.stdout)
 
 
 def parse_args(args_without_script) -> Config:
@@ -211,6 +222,13 @@ def parse_args(args_without_script) -> Config:
     )
     parser.add_argument(
         "--plex-host", "-H", default="localhost", help="location of plexmediaserver"
+    )
+    parser.add_argument(
+        "--prompt-for-passwords",
+        "-p",
+        nargs="+",
+        default=[],
+        help="which passwords to prompt for [sudo, ssh]",
     )
     parser.add_argument(
         "--plex-bin-dir",
@@ -228,11 +246,6 @@ def parse_args(args_without_script) -> Config:
         "--skip-plex-scan", action="store_true", help="skip the plex library scan"
     )
     parser.add_argument("--verbose", action="store_true", help="print debug messages")
-    parser.add_argument(
-        "--validate-plex-scan",
-        action="store_true",
-        help="will wait for plex scan to finish",
-    )
     parsed_args = parser.parse_args(args_without_script)
     return Config(parsed_args)
 
@@ -252,7 +265,7 @@ if __name__ == "__main__":
     if is_valid:
         config.prompt()
     # still attempt sync even even if some lib dirs are missing
-    sync_plex_libraries(config)
+    # sync_plex_libraries(config)
     if not is_valid:
         sys.exit(1)
     if not config.skip_plex_scan:
