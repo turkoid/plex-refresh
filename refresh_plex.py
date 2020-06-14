@@ -31,7 +31,7 @@ def is_new_path(
     logging.debug(f"checking if {physical_path} is added")
     if not os.path.exists(plex_path):
         return physical_path, plex_path
-    return None, Nonegit
+    return None, None
 
 
 class Config:
