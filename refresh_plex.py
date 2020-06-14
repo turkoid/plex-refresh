@@ -147,16 +147,10 @@ def sync_plex_libraries(config: Config):
                     lib_metrics["files"] += 1
 
     for lib in LIBRARIES:
-        logging.info(
-            "{} removed dirs={}, files={}".format(
-                lib, metrics[lib]["removed"]["dirs"], metrics[lib]["removed"]["files"]
-            )
-        )
-        logging.info(
-            "{} added dirs={}, files={}".format(
-                lib, metrics[lib]["added"]["dirs"], metrics[lib]["added"]["files"]
-            )
-        )
+        for section in ["removed", "added"]:
+            dirs_metric = metrics[lib][section]["dirs"]
+            files_metric = metrics[lib][section]["files"]
+            logging.info(f"{lib} {section} dirs={dirs_metric}, files={files_metric}")
 
 
 def plex_scan_library(config: Config):
@@ -164,9 +158,8 @@ def plex_scan_library(config: Config):
     if config.dry_run:
         plex_scanner_cmd = f'"{plex_scanner}" --list'
     else:
-        plex_scanner_cmd = f'"{plex_scanner}" --list'
+        plex_scanner_cmd = f'"{plex_scanner}" --scan'
 
-    # plex_scanner_cmd = '"touch" /root/blah.txt'
     if config.ssh_host == "localhost":
         logging.info(f"running locally: {plex_scanner_cmd}")
         res = sudo(
@@ -191,9 +184,9 @@ def plex_scan_library(config: Config):
             res = conn.sudo(
                 plex_scanner_cmd,
                 user="plex",
-                # password=config.sudo_password,
-                # hide=True,
-                # in_stream=False,
+                password=config.sudo_password,
+                hide=True,
+                in_stream=False,
                 pty=True,
             )
     print(res.stdout)
