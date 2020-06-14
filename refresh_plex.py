@@ -36,8 +36,8 @@ def is_new_path(
 
 class Config:
     def __init__(self, parsed_args):
-        self.physical_media_base_dir: str = parsed_args.physical_media_base_dir
-        self.plex_media_base_dir: str = parsed_args.plex_media_base_dir
+        self.src_base_dir: str = parsed_args.src_base_dir
+        self.dest_base_dir: str = parsed_args.dest_base_dir
         self.plex_host_string: str = parsed_args.plex_host
         self.plex_bin_dir: str = parsed_args.plex_bin_dir
         self.dry_run: bool = parsed_args.dry_run
@@ -53,7 +53,7 @@ class Config:
     def validate(self) -> bool:
         is_valid = True
         for lib in LIBRARIES:
-            for base_dir in [self.physical_media_base_dir, self.plex_media_base_dir]:
+            for base_dir in [self.src_base_dir, self.dest_base_dir]:
                 lib_dir = os.path.join(base_dir, lib)
                 if not os.path.exists(lib_dir):
                     logging.error(f"lib dir is missing: {lib_dir}")
@@ -92,8 +92,8 @@ def sync_plex_libraries(config: Config):
             "orphaned": {"dirs": 0, "files": 0},
             "added": {"dirs": 0, "files": 0},
         }
-        physical_lib_dir = os.path.join(config.physical_media_base_dir, lib)
-        plex_lib_dir = os.path.join(config.plex_media_base_dir, lib)
+        physical_lib_dir = os.path.join(config.src_base_dir, lib)
+        plex_lib_dir = os.path.join(config.dest_base_dir, lib)
         if not os.path.exists(physical_lib_dir):
             logging.error(f"physical lib dir is missing: {physical_lib_dir}")
         if not os.path.exists(plex_lib_dir):
@@ -107,9 +107,9 @@ def sync_plex_libraries(config: Config):
                     root, dir, plex_lib_dir, physical_lib_dir
                 )
                 if orphaned_path:
-                    os.removedirs(orphaned_path)
                     if not config.dry_run:
-                        dirs.remove(dir)
+                        os.removedirs(orphaned_path)
+                    dirs.remove(dir)
                     logging.info(f"Directory removed: {orphaned_path}")
                     lib_metrics["dirs"] += 1
 
@@ -199,6 +199,21 @@ def plex_scan_library(config: Config):
 
 def parse_args(args_without_script) -> Config:
     parser = argparse.ArgumentParser(description="synchronizes plex media folders")
+    parser.add_argument(
+        "--src-base-dir", "-S", required=True, help="the location of the actual media",
+    )
+    parser.add_argument(
+        "--dest-base-dir", "-D", required=True, help="the location of the links"
+    )
+    parser.add_argument(
+        "--plex-host", "-s", default="localhost", help="location of plexmediaserver"
+    )
+    parser.add_argument(
+        "--plex-bin-dir",
+        "-p",
+        default="/usr/lib/plexmediaserver",
+        help="location of the plex binaries",
+    )
     parser.add_argument(
         "--dry-run",
         "-T",
