@@ -23,7 +23,8 @@ class Config:
         self.config_file: PathLike = PurePath(parsed_args.config)
         self.plex_libs: List[PlexLibrary] = []
         self.plex_host: Optional[PlexHost] = None
-        self.dry_run: bool = parsed_args.dry_run
+        self.validate: bool = parsed_args.validate
+        self.dry_run: bool = parsed_args.dry_run or self.validate
         self.skip_plex_scan: bool = parsed_args.skip_plex_scan
         self.verbose: bool = parsed_args.verbose
 
@@ -130,7 +131,7 @@ class Plex:
     def scan_and_refresh(self):
         plex = self.config.plex_host
         api_url = f"http://{plex.host}:{plex.port}"
-        if not self.config.dry_run:
+        if not self.config.validate:
             api_url = f"{api_url}/library/sections/all/refresh"
         headers = {
             "X-Plex-Platform": uname()[0],
@@ -167,6 +168,12 @@ def parse_args(args_without_script) -> Config:
         help="test sync without making modifications to the disk",
     )
     parser.add_argument(
+        "--validate",
+        "-V",
+        action="store_true",
+        help="verifies library paths and tests server connection",
+    )
+    parser.add_argument(
         "--skip-plex-scan", action="store_true", help="skip the plex library scan"
     )
     parser.add_argument("--verbose", action="store_true", help="print debug messages")
@@ -187,7 +194,9 @@ if __name__ == "__main__":
         logging.info("Doing a dry run, nothing is modified")
     config.parse_config_file()
     plex = Plex(config)
-    if config.plex_libs:
+    if config.validate:
+        plex.scan_and_refresh()
+    elif config.plex_libs:
         logging.info("Syncing libraries")
         if plex.sync():
             logging.info("Scanning and refreshing")
