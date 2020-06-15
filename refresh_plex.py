@@ -2,24 +2,27 @@ import argparse
 import logging
 import os
 import sys
+import uuid
 from pathlib import PurePath
-from pathlib import PurePosixPath
+from platform import uname
 from typing import List
 from typing import NamedTuple
+from typing import Optional
 from typing import Union
 
+import requests
 import yaml
 
 PathLike = Union[PurePath, os.PathLike]
 PlexLibrary = NamedTuple("PlexLibrary", [("src", PathLike), ("dest", PathLike)])
+PlexHost = NamedTuple("PlexHost", [("host", str), ("port", int), ("token", str)])
 
 
 class Config:
     def __init__(self, parsed_args):
         self.config_file: PathLike = PurePath(parsed_args.config)
         self.plex_libs: List[PlexLibrary] = []
-        self.plex_host: str = parsed_args.plex_host
-        self.plex_bin_dir: PurePosixPath = PurePosixPath(parsed_args.plex_bin_dir)
+        self.plex_host: Optional[PlexHost] = None
         self.dry_run: bool = parsed_args.dry_run
         self.skip_plex_scan: bool = parsed_args.skip_plex_scan
         self.verbose: bool = parsed_args.verbose
@@ -38,7 +41,12 @@ class Config:
                 logging.error(f"lib dest is missing: {lib.dest}")
             if is_valid:
                 self.plex_libs.append(lib)
-        self.plex_host = config_dict.get("plex_host", "localhost")
+        plex_dict = config_dict.get("plex")
+        self.plex_host = PlexHost(
+            plex_dict.get("host", "localhost"),
+            plex_dict.get("port", 32400),
+            plex_dict["token"],
+        )
 
 
 class Plex:
@@ -88,7 +96,7 @@ class Plex:
             return True
         return False
 
-    def sync(self):
+    def sync(self) -> bool:
         metrics = {"removed": {"dirs": 0, "files": 0}, "added": {"dirs": 0, "files": 0}}
         for lib in self.config.plex_libs:
             lib_metrics = metrics["removed"]
@@ -110,13 +118,43 @@ class Plex:
                     if self.check_added_media(root, file, lib.src, lib.dest, False):
                         lib_metrics["files"] += 1
 
+        changed = False
         for section in ["removed", "added"]:
             dirs_metric = metrics[section]["dirs"]
             files_metric = metrics[section]["files"]
+            changed = changed or dirs_metric or files_metric
             logging.info(f"{section} dirs={dirs_metric}, files={files_metric}")
 
+        return changed
+
     def scan_and_refresh(self):
-        pass
+        plex = self.config.plex_host
+        api_url = f"http://{plex.host}:{plex.port}"
+        if not self.config.dry_run:
+            api_url = f"{api_url}/library/sections/all/refresh"
+        headers = {
+            "X-Plex-Platform": uname()[0],
+            "X-Plex-Platform-Version": uname()[2],
+            "X-Plex-Provides": "controller",
+            "X-Plex-Client-Identifier": str(hex(uuid.getnode())),
+            "X-Plex-Product": "Plex-Refresh",
+            "X-Plex-Version": "0.9b",
+            "X-Plex-Device": uname()[0],
+            "X-Plex-Device-Name": uname()[1],
+            "X-Plex-Token": plex.token,
+            "X-Plex-Sync-Version": "2",
+        }
+
+        response: requests.Response = requests.get(api_url, headers=headers)
+        response_text = response.text.encode("utf-8")
+        if response.ok:
+            if config.dry_run:
+                logging.info(f"Status {response.status_code}: {response_text}")
+            else:
+                logging.info("Scan and Refresh triggered")
+        else:
+            logging.error("Scan and Refresh failed")
+            logging.error(f"Status {response.status_code}: {response_text}")
 
 
 def parse_args(args_without_script) -> Config:
@@ -149,7 +187,10 @@ if __name__ == "__main__":
         logging.info("Doing a dry run, nothing is modified")
     config.parse_config_file()
     plex = Plex(config)
-    if not config.plex_libs:
+    if config.plex_libs:
+        logging.info("Syncing libraries")
+        if plex.sync():
+            logging.info("Scanning and refreshing")
+            plex.scan_and_refresh()
+    else:
         logging.warning("No libraries to sync")
-        plex.sync()
-        plex.scan_and_refresh()
