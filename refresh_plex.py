@@ -1,223 +1,165 @@
 import argparse
-import getpass
 import logging
 import os
 import sys
+import uuid
+from pathlib import PurePath
+from platform import uname
+from typing import List
+from typing import NamedTuple
 from typing import Optional
-from typing import Tuple
+from typing import Union
 
-from fabric import Connection
-from invoke import sudo
+import requests
+import yaml
 
-LIBRARIES = ["movies", "tv"]
-
-
-def is_orphaned_path(root, name, plex_lib_dir, physical_lib_dir) -> Optional[str]:
-    plex_path = os.path.join(root, name)
-    rel_path = os.path.relpath(plex_path, start=plex_lib_dir)
-    physical_path = os.path.join(physical_lib_dir, rel_path)
-    logging.debug(f"checking if {plex_path} is orphaned")
-    if not os.path.exists(physical_path):
-        return plex_path
-    return None
-
-
-def is_new_path(
-    root, name, physical_lib_dir, plex_lib_dir
-) -> Tuple[Optional[str], Optional[str]]:
-    physical_path = os.path.join(root, name)
-    rel_path = os.path.relpath(physical_path, physical_lib_dir)
-    plex_path = os.path.join(plex_lib_dir, rel_path)
-    logging.debug(f"checking if {physical_path} is added")
-    if not os.path.exists(plex_path):
-        return physical_path, plex_path
-    return None, None
+PathLike = Union[PurePath, os.PathLike]
+PlexLibrary = NamedTuple("PlexLibrary", [("src", PathLike), ("dest", PathLike)])
+PlexHost = NamedTuple("PlexHost", [("host", str), ("port", int), ("token", str)])
 
 
 class Config:
     def __init__(self, parsed_args):
-        self.src_base_dir: str = parsed_args.src_base_dir
-        self.dest_base_dir: str = parsed_args.dest_base_dir
-        self.plex_host_string: str = parsed_args.plex_host
-        self.plex_bin_dir: str = parsed_args.plex_bin_dir
+        self.config_file: PathLike = PurePath(parsed_args.config)
+        self.plex_libs: List[PlexLibrary] = []
+        self.plex_host: Optional[PlexHost] = None
         self.dry_run: bool = parsed_args.dry_run
         self.skip_plex_scan: bool = parsed_args.skip_plex_scan
-        self.validate_plex_scan: bool = parsed_args.validate_plex_scan
         self.verbose: bool = parsed_args.verbose
-        self.sudo_password: Optional[str] = None
-        self.ssh_host: str = ""
-        self.ssh_port: int = 22
-        self.ssh_username: Optional[str] = None
-        self.ssh_password: Optional[str] = None
 
-    def validate(self) -> bool:
-        is_valid = True
-        if not self.skip_plex_scan:
-            if not os.path.exists(self.plex_bin_dir):
-                logging.error(f"plex bin dir is missing: {self.plex_bin_dir}")
+    def parse_config_file(self):
+        with open(self.config_file) as fp:
+            config_dict = yaml.safe_load(fp)
+        for lib_dict in config_dict["libs"]:
+            lib = PlexLibrary(PurePath(lib_dict["src"]), PurePath(lib_dict["dest"]))
+            is_valid = True
+            if not os.path.exists(lib.src):
                 is_valid = False
-        for lib in LIBRARIES:
-            for base_dir in [self.src_base_dir, self.dest_base_dir]:
-                lib_dir = os.path.join(base_dir, lib)
-                if not os.path.exists(lib_dir):
-                    logging.error(f"lib dir is missing: {lib_dir}")
-                    is_valid = False
-        return is_valid
-
-    def prompt(self):
-        if self.skip_plex_scan:
-            return
-
-        self.sudo_password = getpass.getpass("sudo password: ")
-        if "@" in self.plex_host_string:
-            self.ssh_username, host_port = self.plex_host_string.split("@", maxsplit=1)
-        else:
-            host_port = self.plex_host_string
-        if ":" in host_port:
-            self.ssh_host, port = host_port.rsplit(":", maxsplit=1)
-            if port:
-                self.ssh_port = int(port)
-        else:
-            self.ssh_host = host_port
-        if self.ssh_host != "localhost":
-            if not self.ssh_username:
-                self.ssh_username = input("ssh username: ")
-            self.ssh_password = getpass.getpass(
-                "ssh password (default: sudo password): "
-            )
-            if not self.ssh_password:
-                self.ssh_password = self.sudo_password
+                logging.error(f"lib src is missing: {lib.src}")
+            if not os.path.exists(lib.dest):
+                is_valid = False
+                logging.error(f"lib dest is missing: {lib.dest}")
+            if is_valid:
+                self.plex_libs.append(lib)
+        plex_dict = config_dict.get("plex")
+        self.plex_host = PlexHost(
+            plex_dict.get("host", "localhost"),
+            plex_dict.get("port", 32400),
+            plex_dict["token"],
+        )
 
 
-def sync_plex_libraries(config: Config):
-    metrics = {}
-    for lib in LIBRARIES:
-        metrics[lib] = {
-            "orphaned": {"dirs": 0, "files": 0},
-            "added": {"dirs": 0, "files": 0},
+class Plex:
+    def __init__(self, config: Config):
+        self.config = config
+
+    def check_removed_media(
+        self,
+        root: str,
+        name: str,
+        lib_src: PathLike,
+        lib_dest: PathLike,
+        is_dirs: bool,
+    ) -> bool:
+        dest_path: PathLike = PurePath(root).joinpath(name)
+        rel_path: PathLike = dest_path.relative_to(lib_dest)
+        src_path: PathLike = lib_src.joinpath(rel_path)
+        logging.debug(f"checking if {dest_path} is removed")
+        if not os.path.exists(src_path):
+            if is_dirs:
+                if not self.config.dry_run:
+                    os.removedirs(dest_path)
+                logging.info(f"Directory removed: {src_path}")
+            else:
+                if not self.config.dry_run:
+                    os.remove(dest_path)
+                logging.info(f"File removed: {src_path}")
+            return True
+        return False
+
+    def check_added_media(
+        self, root: str, name: str, lib_src: PathLike, lib_dest: PathLike, is_dirs,
+    ) -> bool:
+        src_path: PathLike = PurePath(root).joinpath(name)
+        rel_path: PathLike = src_path.relative_to(lib_src)
+        dest_path: PathLike = lib_dest.joinpath(rel_path)
+        logging.debug(f"checking if {src_path} is added")
+        if not os.path.exists(dest_path):
+            if is_dirs:
+                if not self.config.dry_run:
+                    os.mkdir(dest_path)
+                logging.info(f"Directory created: {dest_path}")
+            else:
+                if not self.config.dry_run:
+                    os.link(src_path, dest_path)
+                logging.info(f"Hardlink created: {src_path}")
+            return True
+        return False
+
+    def sync(self) -> bool:
+        metrics = {"removed": {"dirs": 0, "files": 0}, "added": {"dirs": 0, "files": 0}}
+        for lib in self.config.plex_libs:
+            lib_metrics = metrics["removed"]
+            for root, dirs, files in os.walk(lib.dest):
+                for dir in dirs:
+                    if self.check_removed_media(root, dir, lib.src, lib.dest, True):
+                        dirs.remove(dir)
+                        lib_metrics["dirs"] += 1
+                for file in files:
+                    if self.check_removed_media(root, file, lib.src, lib.dest, False):
+                        lib_metrics["files"] += 1
+
+            lib_metrics = metrics["added"]
+            for root, dirs, files in os.walk(lib.src):
+                for dir in dirs:
+                    if self.check_added_media(root, dir, lib.src, lib.dest, True):
+                        lib_metrics["dirs"] += 1
+                for file in files:
+                    if self.check_added_media(root, file, lib.src, lib.dest, False):
+                        lib_metrics["files"] += 1
+
+        changed = False
+        for section in ["removed", "added"]:
+            dirs_metric = metrics[section]["dirs"]
+            files_metric = metrics[section]["files"]
+            changed = changed or dirs_metric or files_metric
+            logging.info(f"{section} dirs={dirs_metric}, files={files_metric}")
+
+        return changed
+
+    def scan_and_refresh(self):
+        plex = self.config.plex_host
+        api_url = f"http://{plex.host}:{plex.port}"
+        if not self.config.dry_run:
+            api_url = f"{api_url}/library/sections/all/refresh"
+        headers = {
+            "X-Plex-Platform": uname()[0],
+            "X-Plex-Platform-Version": uname()[2],
+            "X-Plex-Provides": "controller",
+            "X-Plex-Client-Identifier": str(hex(uuid.getnode())),
+            "X-Plex-Product": "Plex-Refresh",
+            "X-Plex-Version": "0.9b",
+            "X-Plex-Device": uname()[0],
+            "X-Plex-Device-Name": uname()[1],
+            "X-Plex-Token": plex.token,
+            "X-Plex-Sync-Version": "2",
         }
-        physical_lib_dir = os.path.join(config.src_base_dir, lib)
-        plex_lib_dir = os.path.join(config.dest_base_dir, lib)
-        if not os.path.exists(physical_lib_dir):
-            logging.error(f"physical lib dir is missing: {physical_lib_dir}")
-        if not os.path.exists(plex_lib_dir):
-            logging.error(f"plex lib dir is missing: {plex_lib_dir}")
 
-        # remove orphaned media
-        lib_metrics = metrics[lib]["orphaned"]
-        for root, dirs, files in os.walk(plex_lib_dir):
-            for dir in dirs:
-                orphaned_path = is_orphaned_path(
-                    root, dir, plex_lib_dir, physical_lib_dir
-                )
-                if orphaned_path:
-                    if not config.dry_run:
-                        os.removedirs(orphaned_path)
-                    dirs.remove(dir)
-                    logging.info(f"Directory removed: {orphaned_path}")
-                    lib_metrics["dirs"] += 1
-
-            for file in files:
-                orphaned_path = is_orphaned_path(
-                    root, file, plex_lib_dir, physical_lib_dir
-                )
-                if orphaned_path:
-                    if not config.dry_run:
-                        os.remove(orphaned_path)
-                    logging.info(f"File removed: {orphaned_path}")
-                    lib_metrics["files"] += 1
-
-        # add new symbolic links
-        lib_metrics = metrics[lib]["added"]
-        for root, dirs, files in os.walk(physical_lib_dir):
-            for dir in dirs:
-                physical_path, new_path = is_new_path(
-                    root, dir, physical_lib_dir, plex_lib_dir
-                )
-                if new_path:
-                    if not config.dry_run:
-                        os.mkdir(new_path)
-                    logging.info(f"Directory created: {new_path}")
-                    lib_metrics["dirs"] += 1
-            for file in files:
-                physical_path, new_path = is_new_path(
-                    root, file, physical_lib_dir, plex_lib_dir
-                )
-                if new_path:
-                    if not config.dry_run:
-                        os.link(physical_path, new_path)
-                    logging.info(f"Hardlink created: {new_path}")
-                    lib_metrics["files"] += 1
-
-    for lib in LIBRARIES:
-        logging.info(
-            "{} orphaned dirs={}, files={}".format(
-                lib, metrics[lib]["orphaned"]["dirs"], metrics[lib]["orphaned"]["files"]
-            )
-        )
-        logging.info(
-            "{} added dirs={}, files={}".format(
-                lib, metrics[lib]["added"]["dirs"], metrics[lib]["added"]["files"]
-            )
-        )
-
-
-def plex_scan_library(config: Config):
-    plex_scanner = os.path.join(config.plex_bin_dir, "Plex Media Scanner")
-    if config.dry_run:
-        plex_scanner_cmd = f'"{plex_scanner}" --list'
-    else:
-        plex_scanner_cmd = f'"{plex_scanner}" --scan'
-
-    disown = not config.validate_plex_scan
-    if config.ssh_host == "localhost":
-        logging.info(f"running locally: {plex_scanner_cmd}")
-        sudo(
-            plex_scanner_cmd,
-            user="plex",
-            password=config.sudo_password,
-            hide=True,
-            in_stream=False,
-            disown=disown,
-        )
-    else:
-        logging.debug(
-            f"host={config.ssh_host}, port={config.ssh_port}, user={config.ssh_username}"
-        )
-        with Connection(
-            host=config.ssh_host,
-            port=config.ssh_port,
-            user=config.ssh_username,
-            connect_kwargs={"password": config.ssh_password},
-        ) as conn:
-            logging.info(f"running remotely: {plex_scanner_cmd}")
-            conn.sudo(
-                plex_scanner_cmd,
-                user="plex",
-                password=config.sudo_password,
-                hide=True,
-                in_stream=False,
-                disown=disown,
-            )
+        response: requests.Response = requests.get(api_url, headers=headers)
+        response_text = response.text.encode("utf-8")
+        if response.ok:
+            if config.dry_run:
+                logging.info(f"Status {response.status_code}: {response_text}")
+            else:
+                logging.info("Scan and Refresh triggered")
+        else:
+            logging.error("Scan and Refresh failed")
+            logging.error(f"Status {response.status_code}: {response_text}")
 
 
 def parse_args(args_without_script) -> Config:
     parser = argparse.ArgumentParser(description="synchronizes plex media folders")
-    parser.add_argument(
-        "--src-base-dir", "-S", required=True, help="the location of the actual media",
-    )
-    parser.add_argument(
-        "--dest-base-dir", "-D", required=True, help="the location of the links"
-    )
-    parser.add_argument(
-        "--plex-host", "-H", default="localhost", help="location of plexmediaserver"
-    )
-    parser.add_argument(
-        "--plex-bin-dir",
-        "-b",
-        default="/usr/lib/plexmediaserver",
-        help="location of the plex binaries",
-    )
+    parser.add_argument("--config", "-c", required=True, help="path to config file")
     parser.add_argument(
         "--dry-run",
         "-T",
@@ -228,11 +170,6 @@ def parse_args(args_without_script) -> Config:
         "--skip-plex-scan", action="store_true", help="skip the plex library scan"
     )
     parser.add_argument("--verbose", action="store_true", help="print debug messages")
-    parser.add_argument(
-        "--validate-plex-scan",
-        action="store_true",
-        help="will wait for plex scan to finish",
-    )
     parsed_args = parser.parse_args(args_without_script)
     return Config(parsed_args)
 
@@ -248,12 +185,12 @@ if __name__ == "__main__":
         logging.getLogger("invoke").setLevel(logging.ERROR)
     if config.dry_run:
         logging.info("Doing a dry run, nothing is modified")
-    is_valid = config.validate()
-    if is_valid:
-        config.prompt()
-    # still attempt sync even even if some lib dirs are missing
-    sync_plex_libraries(config)
-    if not is_valid:
-        sys.exit(1)
-    if not config.skip_plex_scan:
-        plex_scan_library(config)
+    config.parse_config_file()
+    plex = Plex(config)
+    if config.plex_libs:
+        logging.info("Syncing libraries")
+        if plex.sync():
+            logging.info("Scanning and refreshing")
+            plex.scan_and_refresh()
+    else:
+        logging.warning("No libraries to sync")
