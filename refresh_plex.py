@@ -17,6 +17,8 @@ PathLike = Union[PurePath, os.PathLike]
 PlexLibrary = NamedTuple("PlexLibrary", [("src", PathLike), ("dest", PathLike)])
 PlexHost = NamedTuple("PlexHost", [("host", str), ("port", int), ("token", str)])
 
+logger = logging.getLogger("refresh_plex")
+
 
 class Config:
     def __init__(self, parsed_args):
@@ -36,10 +38,10 @@ class Config:
             is_valid = True
             if not os.path.exists(lib.src):
                 is_valid = False
-                logging.error(f"lib src is missing: {lib.src}")
+                logger.error(f"lib src is missing: {lib.src}")
             if not os.path.exists(lib.dest):
                 is_valid = False
-                logging.error(f"lib dest is missing: {lib.dest}")
+                logger.error(f"lib dest is missing: {lib.dest}")
             if is_valid:
                 self.plex_libs.append(lib)
         plex_dict = config_dict.get("plex")
@@ -65,16 +67,16 @@ class Plex:
         dest_path: PathLike = PurePath(root).joinpath(name)
         rel_path: PathLike = dest_path.relative_to(lib_dest)
         src_path: PathLike = lib_src.joinpath(rel_path)
-        logging.debug(f"checking if {dest_path} is removed")
+        logger.debug(f"checking if {dest_path} is removed")
         if not os.path.exists(src_path):
             if is_dirs:
                 if not self.config.dry_run:
                     os.removedirs(dest_path)
-                logging.info(f"Directory removed: {src_path}")
+                logger.info(f"Directory removed: {src_path}")
             else:
                 if not self.config.dry_run:
                     os.remove(dest_path)
-                logging.info(f"File removed: {src_path}")
+                logger.info(f"File removed: {src_path}")
             return True
         return False
 
@@ -84,16 +86,16 @@ class Plex:
         src_path: PathLike = PurePath(root).joinpath(name)
         rel_path: PathLike = src_path.relative_to(lib_src)
         dest_path: PathLike = lib_dest.joinpath(rel_path)
-        logging.debug(f"checking if {src_path} is added")
+        logger.debug(f"checking if {src_path} is added")
         if not os.path.exists(dest_path):
             if is_dirs:
                 if not self.config.dry_run:
                     os.mkdir(dest_path)
-                logging.info(f"Directory created: {dest_path}")
+                logger.info(f"Directory created: {dest_path}")
             else:
                 if not self.config.dry_run:
                     os.link(src_path, dest_path)
-                logging.info(f"Hardlink created: {src_path}")
+                logger.info(f"Hardlink created: {src_path}")
             return True
         return False
 
@@ -124,7 +126,7 @@ class Plex:
             dirs_metric = metrics[section]["dirs"]
             files_metric = metrics[section]["files"]
             changed = changed or dirs_metric or files_metric
-            logging.info(f"{section} dirs={dirs_metric}, files={files_metric}")
+            logger.info(f"{section} dirs={dirs_metric}, files={files_metric}")
 
         return changed
 
@@ -150,9 +152,9 @@ class Plex:
         response_text = response.text.encode("utf-8")
         response.raise_for_status()
         if config.dry_run:
-            logging.info(f"Status {response.status_code}: {response_text}")
+            logger.info(f"Status {response.status_code}: {response_text}")
         else:
-            logging.info("Scan and Refresh triggered")
+            logger.info("Scan and Refresh triggered")
 
 
 def parse_args(args_without_script) -> Config:
@@ -184,17 +186,17 @@ def parse_args(args_without_script) -> Config:
 
 if __name__ == "__main__":
     config = parse_args(sys.argv[1:])
-    logging.getLogger().setLevel(config.verbosity.upper())
+    logging.basicConfig(level=config.verbosity.upper())
     if config.dry_run:
-        logging.info("Doing a dry run, nothing is modified")
+        logger.info("Doing a dry run, nothing is modified")
     config.parse_config_file()
     plex = Plex(config)
     if config.validate:
         plex.scan_and_refresh()
     elif config.plex_libs:
-        logging.info("Syncing libraries")
+        logger.info("Syncing libraries")
         if plex.sync():
-            logging.info("Scanning and refreshing")
+            logger.info("Scanning and refreshing")
             plex.scan_and_refresh()
     else:
-        logging.warning("No libraries to sync")
+        logger.warning("No libraries to sync")
