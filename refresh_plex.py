@@ -148,14 +148,11 @@ class Plex:
 
         response: requests.Response = requests.get(api_url, headers=headers)
         response_text = response.text.encode("utf-8")
-        if response.ok:
-            if config.dry_run:
-                logging.info(f"Status {response.status_code}: {response_text}")
-            else:
-                logging.info("Scan and Refresh triggered")
+        response.raise_for_status()
+        if config.dry_run:
+            logging.info(f"Status {response.status_code}: {response_text}")
         else:
-            logging.error("Scan and Refresh failed")
-            logging.error(f"Status {response.status_code}: {response_text}")
+            logging.info("Scan and Refresh triggered")
 
 
 def parse_args(args_without_script) -> Config:
