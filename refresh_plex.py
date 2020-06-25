@@ -184,9 +184,14 @@ def parse_args(args_without_script) -> Config:
     return Config(parsed_args)
 
 
+def setup_logging():
+    logging.basicConfig()
+    logger.setLevel(config.verbosity.upper())
+
+
 if __name__ == "__main__":
     config = parse_args(sys.argv[1:])
-    logging.basicConfig(level=config.verbosity.upper())
+    setup_logging()
     if config.dry_run:
         logger.info("Doing a dry run, nothing is modified")
     config.parse_config_file()
