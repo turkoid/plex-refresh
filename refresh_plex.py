@@ -26,7 +26,7 @@ class Config:
         self.validate: bool = parsed_args.validate
         self.dry_run: bool = parsed_args.dry_run or self.validate
         self.skip_plex_scan: bool = parsed_args.skip_plex_scan
-        self.verbose: bool = parsed_args.verbose
+        self.verbosity: str = parsed_args.verbosity
 
     def parse_config_file(self):
         with open(self.config_file) as fp:
@@ -176,15 +176,18 @@ def parse_args(args_without_script) -> Config:
     parser.add_argument(
         "--skip-plex-scan", action="store_true", help="skip the plex library scan"
     )
-    parser.add_argument("--verbose", action="store_true", help="print debug messages")
+    parser.add_argument(
+        "--verbosity",
+        default="info",
+        help="what level of logging messages to show [debug, info (default), warning, error, critical]",
+    )
     parsed_args = parser.parse_args(args_without_script)
     return Config(parsed_args)
 
 
 if __name__ == "__main__":
     config = parse_args(sys.argv[1:])
-    if config.verbose:
-        logging.getLogger().setLevel(logging.DEBUG)
+    logging.getLogger().setLevel(config.verbosity.upper())
     if config.dry_run:
         logging.info("Doing a dry run, nothing is modified")
     config.parse_config_file()
