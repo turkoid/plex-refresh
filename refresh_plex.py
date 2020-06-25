@@ -17,10 +17,6 @@ PathLike = Union[PurePath, os.PathLike]
 PlexLibrary = NamedTuple("PlexLibrary", [("src", PathLike), ("dest", PathLike)])
 PlexHost = NamedTuple("PlexHost", [("host", str), ("port", int), ("token", str)])
 
-logger = logging.getLogger("refresh-plex")
-logger.setLevel(logging.INFO)
-logger.addHandler(logging.StreamHandler())
-
 
 class Config:
     def __init__(self, parsed_args):
@@ -40,10 +36,10 @@ class Config:
             is_valid = True
             if not os.path.exists(lib.src):
                 is_valid = False
-                logger.error(f"lib src is missing: {lib.src}")
+                logging.error(f"lib src is missing: {lib.src}")
             if not os.path.exists(lib.dest):
                 is_valid = False
-                logger.error(f"lib dest is missing: {lib.dest}")
+                logging.error(f"lib dest is missing: {lib.dest}")
             if is_valid:
                 self.plex_libs.append(lib)
         plex_dict = config_dict.get("plex")
@@ -74,11 +70,11 @@ class Plex:
             if is_dirs:
                 if not self.config.dry_run:
                     os.removedirs(dest_path)
-                logger.info(f"Directory removed: {src_path}")
+                logging.info(f"Directory removed: {src_path}")
             else:
                 if not self.config.dry_run:
                     os.remove(dest_path)
-                logger.info(f"File removed: {src_path}")
+                logging.info(f"File removed: {src_path}")
             return True
         return False
 
@@ -93,11 +89,11 @@ class Plex:
             if is_dirs:
                 if not self.config.dry_run:
                     os.mkdir(dest_path)
-                logger.info(f"Directory created: {dest_path}")
+                logging.info(f"Directory created: {dest_path}")
             else:
                 if not self.config.dry_run:
                     os.link(src_path, dest_path)
-                logger.info(f"Hardlink created: {src_path}")
+                logging.info(f"Hardlink created: {src_path}")
             return True
         return False
 
@@ -128,7 +124,7 @@ class Plex:
             dirs_metric = metrics[section]["dirs"]
             files_metric = metrics[section]["files"]
             changed = changed or dirs_metric or files_metric
-            logger.info(f"{section} dirs={dirs_metric}, files={files_metric}")
+            logging.info(f"{section} dirs={dirs_metric}, files={files_metric}")
 
         return changed
 
@@ -154,12 +150,12 @@ class Plex:
         response_text = response.text.encode("utf-8")
         if response.ok:
             if config.dry_run:
-                logger.info(f"Status {response.status_code}: {response_text}")
+                logging.info(f"Status {response.status_code}: {response_text}")
             else:
-                logger.info("Scan and Refresh triggered")
+                logging.info("Scan and Refresh triggered")
         else:
-            logger.error("Scan and Refresh failed")
-            logger.error(f"Status {response.status_code}: {response_text}")
+            logging.error("Scan and Refresh failed")
+            logging.error(f"Status {response.status_code}: {response_text}")
 
 
 def parse_args(args_without_script) -> Config:
@@ -188,17 +184,22 @@ def parse_args(args_without_script) -> Config:
 if __name__ == "__main__":
     config = parse_args(sys.argv[1:])
     if config.verbose:
-        logger.setLevel(logging.DEBUG)
+        logging.getLogger().setLevel(logging.DEBUG)
+    else:
+        logging.getLogger().setLevel(logging.INFO)
+        logging.getLogger("paramiko").setLevel(logging.ERROR)
+        logging.getLogger("fabric").setLevel(logging.ERROR)
+        logging.getLogger("invoke").setLevel(logging.ERROR)
     if config.dry_run:
-        logger.info("Doing a dry run, nothing is modified")
+        logging.info("Doing a dry run, nothing is modified")
     config.parse_config_file()
     plex = Plex(config)
     if config.validate:
         plex.scan_and_refresh()
     elif config.plex_libs:
-        logger.info("Syncing libraries")
+        logging.info("Syncing libraries")
         if plex.sync():
-            logger.info("Scanning and refreshing")
+            logging.info("Scanning and refreshing")
             plex.scan_and_refresh()
     else:
-        logger.warning("No libraries to sync")
+        logging.warning("No libraries to sync")
