@@ -1,6 +1,7 @@
 import argparse
 import logging
 import os
+import shutil
 import sys
 import uuid
 from pathlib import PurePath
@@ -71,7 +72,7 @@ class Plex:
         if not os.path.exists(src_path):
             if is_dirs:
                 if not self.config.dry_run:
-                    os.removedirs(dest_path)
+                    shutil.rmtree(dest_path, ignore_errors=True)
                 logger.info(f"Directory removed: {src_path}")
             else:
                 if not self.config.dry_run:
