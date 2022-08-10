@@ -136,7 +136,7 @@ class Plex:
                 os.remove(dest_path)
                 os.link(src_path, dest_path)
             logger.info(
-                f"Refreshed hardlink: {src_path} [{sizeof_fmt(src_size)} => {sizeof_fmt(dest_dize)}]"
+                f"Refreshed hardlink: {src_path} [{sizeof_fmt(dest_dize)} => {sizeof_fmt(src_size)}]"
             )
             return True
         return False
