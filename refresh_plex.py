@@ -3,16 +3,15 @@ import logging
 import os
 import shutil
 import sys
-import uuid
+from dataclasses import dataclass
 from pathlib import PurePath
-from platform import uname
 from typing import List
 from typing import NamedTuple
 from typing import Optional
 from typing import Union
 
-import requests
 import yaml
+from plexapi.server import PlexServer
 
 PathLike = Union[PurePath, os.PathLike]
 PlexLibrary = NamedTuple("PlexLibrary", [("src", PathLike), ("dest", PathLike)])
@@ -21,13 +20,18 @@ PlexHost = NamedTuple("PlexHost", [("host", str), ("port", int), ("token", str)]
 logger = logging.getLogger("refresh_plex")
 
 
+@dataclass
+class SyncMetric:
+    dirs: int = 0
+    files: int = 0
+
+
 class Config:
     def __init__(self, parsed_args):
         self.config_file: PathLike = PurePath(parsed_args.config)
         self.plex_libs: List[PlexLibrary] = []
-        self.plex_host: Optional[PlexHost] = None
-        self.validate: bool = parsed_args.validate
-        self.dry_run: bool = parsed_args.dry_run or self.validate
+        self.plex: Optional[PlexHost] = None
+        self.dry_run: bool = parsed_args.dry_run
         self.skip_plex_scan: bool = parsed_args.skip_plex_scan
         self.verbosity: str = parsed_args.verbosity
 
@@ -46,7 +50,7 @@ class Config:
             if is_valid:
                 self.plex_libs.append(lib)
         plex_dict = config_dict.get("plex")
-        self.plex_host = PlexHost(
+        self.plex = PlexHost(
             plex_dict.get("host", "localhost"),
             plex_dict.get("port", 32400),
             plex_dict["token"],
@@ -56,6 +60,10 @@ class Config:
 class Plex:
     def __init__(self, config: Config):
         self.config = config
+        self.plex: PlexServer = PlexServer(
+            f"http://{self.config.plex.host}:{self.config.plex.port}",
+            self.config.plex.token,
+        )
 
     def check_removed_media(
         self,
@@ -82,7 +90,12 @@ class Plex:
         return False
 
     def check_added_media(
-        self, root: str, name: str, lib_src: PathLike, lib_dest: PathLike, is_dirs,
+        self,
+        root: str,
+        name: str,
+        lib_src: PathLike,
+        lib_dest: PathLike,
+        is_dirs,
     ) -> bool:
         src_path: PathLike = PurePath(root).joinpath(name)
         rel_path: PathLike = src_path.relative_to(lib_src)
@@ -98,64 +111,101 @@ class Plex:
                     os.link(src_path, dest_path)
                 logger.info(f"Hardlink created: {src_path}")
             return True
+
         return False
 
-    def sync(self) -> bool:
-        metrics = {"removed": {"dirs": 0, "files": 0}, "added": {"dirs": 0, "files": 0}}
+    def check_changed_media(
+        self,
+        root: str,
+        name: str,
+        lib_src: PathLike,
+        lib_dest: PathLike,
+        is_dirs: bool,
+    ) -> bool:
+        if is_dirs:
+            return False
+        dest_path: PathLike = PurePath(root).joinpath(name)
+        rel_path: PathLike = dest_path.relative_to(lib_dest)
+        src_path: PathLike = lib_src.joinpath(rel_path)
+        logger.debug(f"checking if {dest_path} has changed")
+        src_size = os.path.getsize(src_path)
+        dest_dize = os.path.getsize(dest_path)
+        if src_size != dest_dize:
+            if not self.config.dry_run:
+                os.remove(dest_path)
+                os.link(src_path, dest_path)
+            logger.info(
+                f"Refreshed hardlink: {src_path} [{sizeof_fmt(src_size)} => {sizeof_fmt(dest_dize)}]"
+            )
+            return True
+        return False
+
+    def sync(self) -> Optional[dict[str, SyncMetric]]:
+        if not self.config.plex_libs:
+            logger.warning("No libraries to sync")
+            return None
+
+        logger.info("Syncing libraries")
+
+        metrics: dict[str, SyncMetric] = {
+            "removed": SyncMetric(),
+            "added": SyncMetric(),
+            "changed": SyncMetric(),
+        }
+
         for lib in self.config.plex_libs:
-            lib_metrics = metrics["removed"]
             for root, dirs, files in os.walk(lib.dest):
                 for dir in dirs:
                     if self.check_removed_media(root, dir, lib.src, lib.dest, True):
                         dirs.remove(dir)
-                        lib_metrics["dirs"] += 1
+                        metrics["removed"].dirs += 1
                 for file in files:
                     if self.check_removed_media(root, file, lib.src, lib.dest, False):
-                        lib_metrics["files"] += 1
+                        metrics["removed"].files += 1
+                    elif self.check_changed_media(root, file, lib.src, lib.dest, False):
+                        metrics["changed"].files += 1
 
-            lib_metrics = metrics["added"]
             for root, dirs, files in os.walk(lib.src):
                 for dir in dirs:
                     if self.check_added_media(root, dir, lib.src, lib.dest, True):
-                        lib_metrics["dirs"] += 1
+                        metrics["added"].dirs += 1
                 for file in files:
                     if self.check_added_media(root, file, lib.src, lib.dest, False):
-                        lib_metrics["files"] += 1
+                        metrics["added"].files += 1
 
-        changed = False
-        for section in ["removed", "added"]:
-            dirs_metric = metrics[section]["dirs"]
-            files_metric = metrics[section]["files"]
-            changed = changed or dirs_metric or files_metric
-            logger.info(f"{section} dirs={dirs_metric}, files={files_metric}")
+        for section in ["removed", "added", "changed"]:
+            logger.info(
+                f"{section} dirs={metrics[section].dirs}, files={metrics[section].files}"
+            )
 
-        return changed
+        return metrics
 
-    def scan_and_refresh(self):
-        plex = self.config.plex_host
-        api_url = f"http://{plex.host}:{plex.port}"
-        if not self.config.validate:
-            api_url = f"{api_url}/library/sections/all/refresh"
-        headers = {
-            "X-Plex-Platform": uname()[0],
-            "X-Plex-Platform-Version": uname()[2],
-            "X-Plex-Provides": "controller",
-            "X-Plex-Client-Identifier": str(hex(uuid.getnode())),
-            "X-Plex-Product": "Plex-Refresh",
-            "X-Plex-Version": "0.9b",
-            "X-Plex-Device": uname()[0],
-            "X-Plex-Device-Name": uname()[1],
-            "X-Plex-Token": plex.token,
-            "X-Plex-Sync-Version": "2",
-        }
+    def update_server(self, metrics: dict[str, SyncMetric]):
+        if not metrics:
+            return
 
-        response: requests.Response = requests.get(api_url, headers=headers)
-        response_text = response.text.encode("utf-8")
-        response.raise_for_status()
-        if config.dry_run:
-            logger.info(f"Status {response.status_code}: {response_text}")
-        else:
-            logger.info("Scan and Refresh triggered")
+        if (
+            metrics["added"].dirs
+            or metrics["added"].files
+            or metrics["removed"].dirs
+            or metrics["removed"].files
+        ):
+            logger.info("Refresh media triggered")
+            self.plex.library.update()
+
+        if metrics["changed"].dirs or metrics["changed"].files:
+            logger.info("Analyze media triggered")
+            for section in self.plex.library.sections():
+                logger.debug(f"Triggering analyze media for {section.title}")
+                section.analyze()
+
+
+def sizeof_fmt(num, suffix="B"):
+    for unit in ["", "Ki", "Mi", "Gi", "Ti", "Pi", "Ei", "Zi"]:
+        if abs(num) < 1024.0:
+            return f"{num:3.1f}{unit}{suffix}"
+        num /= 1024.0
+    return f"{num:.1f}Yi{suffix}"
 
 
 def parse_args(args_without_script) -> Config:
@@ -166,12 +216,6 @@ def parse_args(args_without_script) -> Config:
         "-T",
         action="store_true",
         help="test sync without making modifications to the disk",
-    )
-    parser.add_argument(
-        "--validate",
-        "-V",
-        action="store_true",
-        help="verifies library paths and tests server connection",
     )
     parser.add_argument(
         "--skip-plex-scan", action="store_true", help="skip the plex library scan"
@@ -185,24 +229,21 @@ def parse_args(args_without_script) -> Config:
     return Config(parsed_args)
 
 
-def setup_logging():
+def setup_logging(config):
     logging.basicConfig()
     logger.setLevel(config.verbosity.upper())
 
 
-if __name__ == "__main__":
-    config = parse_args(sys.argv[1:])
-    setup_logging()
+def run(*args_without_script: str):
+    config = parse_args(args_without_script)
+    setup_logging(config)
     if config.dry_run:
         logger.info("Doing a dry run, nothing is modified")
     config.parse_config_file()
     plex = Plex(config)
-    if config.validate:
-        plex.scan_and_refresh()
-    elif config.plex_libs:
-        logger.info("Syncing libraries")
-        if plex.sync():
-            logger.info("Scanning and refreshing")
-            plex.scan_and_refresh()
-    else:
-        logger.warning("No libraries to sync")
+    metrics = plex.sync()
+    plex.update_server(metrics)
+
+
+if __name__ == "__main__":
+    run(*sys.argv[1:])
