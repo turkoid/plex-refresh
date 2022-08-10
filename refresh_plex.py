@@ -5,6 +5,7 @@ import shutil
 import sys
 from dataclasses import dataclass
 from pathlib import PurePath
+from typing import Dict
 from typing import List
 from typing import NamedTuple
 from typing import Optional
@@ -140,14 +141,14 @@ class Plex:
             return True
         return False
 
-    def sync(self) -> Optional[dict[str, SyncMetric]]:
+    def sync(self) -> Optional[Dict[str, SyncMetric]]:
         if not self.config.plex_libs:
             logger.warning("No libraries to sync")
             return None
 
         logger.info("Syncing libraries")
 
-        metrics: dict[str, SyncMetric] = {
+        metrics: Dict[str, SyncMetric] = {
             "removed": SyncMetric(),
             "added": SyncMetric(),
             "changed": SyncMetric(),
@@ -180,7 +181,7 @@ class Plex:
 
         return metrics
 
-    def update_server(self, metrics: dict[str, SyncMetric]):
+    def update_server(self, metrics: Dict[str, SyncMetric]):
         if not metrics:
             return
 
