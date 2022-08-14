@@ -252,8 +252,9 @@ class Plex:
 
     def refresh_cache(self):
         logger.info("Refreshing cache...")
-        os.remove(CACHE_DB)
         with open_db(CACHE_DB) as conn:
+            conn.execute("DROP TABLE IF EXISTS media")
+            conn.commit()
             data: List[Tuple[str, int, str]] = []
             for lib_section in self.plex.library.sections():
                 lib_type = lib_section.type
