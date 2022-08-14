@@ -1,3 +1,4 @@
 config.yaml
 cache.db
-.idea
+.idea/
+__pycache__/
