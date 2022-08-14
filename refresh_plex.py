@@ -252,9 +252,7 @@ class Plex:
 
     def refresh_cache(self):
         logger.info("Refreshing cache...")
-        with open_db(CACHE_DB) as conn:
-            conn.execute("DROP TABLE IF EXISTS media")
-            conn.commit()
+        with open_db(CACHE_DB, reset=True) as conn:
             data: List[Tuple[str, int, str]] = []
             for lib_section in self.plex.library.sections():
                 lib_type = lib_section.type
@@ -402,13 +400,16 @@ def parse_args(args_without_script) -> Config:
 
 
 @contextlib.contextmanager
-def open_db(db: str) -> Connection:
-    con = sqlite3.connect(db)
+def open_db(db: str, reset: bool = False) -> Connection:
+    conn = sqlite3.connect(db)
     try:
-        con.execute("CREATE TABLE IF NOT EXISTS media (lib TEXT, key INT, path TEXT)")
-        yield con
+        if reset:
+            conn.execute("DROP TABLE IF EXISTS media")
+        conn.execute("CREATE TABLE IF NOT EXISTS media (lib TEXT, key INT, path TEXT)")
+        conn.commit()
+        yield conn
     finally:
-        con.close()
+        conn.close()
 
 
 def setup_logging(config):
