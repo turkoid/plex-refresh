@@ -73,7 +73,9 @@ class Config:
         self.plex_libs: List[PlexLibrary] = []
         self.plex: Optional[PlexHost] = None
         self.dry_run: bool = parsed_args.dry_run
-        self.skip_plex_scan: bool = parsed_args.skip_plex_scan
+        self.skip_refresh: bool = parsed_args.skip_refresh
+        self.skip_analyze: bool = parsed_args.skip_analyze
+        self.refresh_cache: bool = parsed_args.refresh_cache
         self.verbosity: str = parsed_args.verbosity
 
     def parse_config_file(self):
@@ -239,12 +241,17 @@ class Plex:
         return metrics
 
     def refresh_libraries(self):
+        if self.config.skip_refresh:
+            logger.warning("Skipping refresh...")
+            return
+
         if not self.config.dry_run:
             self.plex.library.update()
+
         logger.info("Refresh media triggered")
 
-    def update_cache(self):
-        logger.info("Updating cache...")
+    def refresh_cache(self):
+        logger.info("Refreshing cache...")
         os.remove(CACHE_DB)
         with open_db(CACHE_DB) as conn:
             data: List[Tuple[str, int, str]] = []
@@ -311,13 +318,17 @@ class Plex:
         return analyze_items, missing_items
 
     def analyze_libraries(self, changed_paths: Dict[str, List[PathLike]]):
-        if not changed_paths:
-            pass
+        if self.config.skip_analyze:
+            logger.warning("Skipping analyze...")
+            return
 
-        items = self.find_items(changed_paths, False)
+        if not changed_paths:
+            return
+
+        items = self.find_items(changed_paths, not self.config.refresh_cache)
         if items is None:
             logger.warning("Cache invalid...")
-            self.update_cache()
+            self.refresh_cache()
             analyze_items, missing_items = self.find_items(changed_paths, False)
         else:
             analyze_items, missing_items = items
@@ -370,7 +381,15 @@ def parse_args(args_without_script) -> Config:
         help="test sync without making modifications to the disk",
     )
     parser.add_argument(
-        "--skip-plex-scan", action="store_true", help="skip the plex library scan"
+        "--skip-refresh", action="store_true", help="skip the plex library refresh"
+    )
+    parser.add_argument(
+        "--skip-analyze",
+        action="store_true",
+        help="skip triggering analyze for changed items",
+    )
+    parser.add_argument(
+        "--refresh-cache", action="store_true", help="refresh the plex media cache"
     )
     parser.add_argument(
         "--verbosity",
@@ -404,6 +423,8 @@ def run(*args_without_script: str):
     config.parse_config_file()
     plex = Plex(config)
     metrics = plex.sync()
+    if config.refresh_cache:
+        plex.refresh_cache()
     plex.update_server(metrics)
 
 
