@@ -261,8 +261,6 @@ class Plex:
                 for item in lib_section.all(
                     "movie" if lib_type == "movie" else "episode"
                 ):
-                    # for item in [lib_section.fetchItem(865)]:
-                    #     print(item.ratingKey)
                     for file in [mp.file for m in item.media for mp in m.parts]:
                         data.append((lib_type, item.ratingKey, str(PurePath(file))))
             conn.executemany("INSERT INTO media VALUES (?, ?, ?)", data)
