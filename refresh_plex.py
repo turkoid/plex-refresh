@@ -207,13 +207,13 @@ class Plex:
             lib_metrics = metrics.setdefault(lib.type, LibMetrics())
 
             for root, dirs, files in os.walk(lib.dest):
-                for dir in dirs:
+                for dir in sorted(dirs):
                     if path := self.check_removed_media(
                         root, dir, lib.src, lib.dest, True
                     ):
                         dirs.remove(dir)
                         lib_metrics.removed.dirs.append(path)
-                for file in files:
+                for file in sorted(files):
                     if path := self.check_removed_media(
                         root, file, lib.src, lib.dest, False
                     ):
@@ -224,12 +224,12 @@ class Plex:
                         lib_metrics.changed.files.append(path)
 
             for root, dirs, files in os.walk(lib.src):
-                for dir in dirs:
+                for dir in sorted(dirs):
                     if path := self.check_added_media(
                         root, dir, lib.src, lib.dest, True
                     ):
                         lib_metrics.added.dirs.append(path)
-                for file in files:
+                for file in sorted(files):
                     if path := self.check_added_media(
                         root, file, lib.src, lib.dest, False
                     ):
